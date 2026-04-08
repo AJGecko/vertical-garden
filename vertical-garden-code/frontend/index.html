@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vertical Garden Panel</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+    <section class="panel">
+        <header class="panel-header">
+            <div class="panel-header-main">
+                <h1 id="titleText">Vertical Garden Panel</h1>
+                <p id="subtitleText">Direkter Zugriff im lokalen Netzwerk auf deinen Controller.</p>
+            </div>
+            <button id="themeToggle" class="theme-toggle" type="button">Dark Mode</button>
+        </header>
+
+        <main class="panel-body">
+            <section class="section">
+                <div class="section-title">
+                    <h2 id="settingsTitle">Settings</h2>
+                    <div class="tools">
+                        <button id="languageToggle" class="secondary tiny-button" type="button">DE / EN</button>
+                        <button id="resetButton" class="danger-button" type="button">Reset</button>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div>
+                        <label id="ipLabel" for="ipInput">Controller IP-Adresse</label>
+                        <input id="ipInput" type="text" placeholder="z.B. 192.168.178.45" autocomplete="off">
+                    </div>
+                    <div>
+                        <label id="timezoneLabel" for="timezoneInput">Zeitzone</label>
+                        <select id="timezoneInput"></select>
+                    </div>
+                </div>
+
+                <div class="advanced-panel">
+                    <button id="advancedToggle" class="advanced-toggle" type="button">
+                        <strong id="advancedTitle">Advanced Options</strong>
+                        <span id="advancedChevron">▾</span>
+                    </button>
+                    <div id="advancedContent" class="advanced-content" hidden>
+                        <div class="row">
+                            <label class="port-toggle" for="portEnabled">
+                                <input id="portEnabled" type="checkbox">
+                                <span id="portEnabledLabel">Custom Port verwenden</span>
+                            </label>
+                            <div>
+                                <label id="portLabel" for="portInput">Custom Port</label>
+                                <input id="portInput" type="number" min="1" max="65535" placeholder="80" value="80" disabled>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <label class="rate-toggle" for="liveRateEnabled">
+                                <input id="liveRateEnabled" type="checkbox">
+                                <span id="liveRateEnabledLabel">Eigene Live-Rate verwenden</span>
+                            </label>
+                            <div>
+                                <label id="liveIntervalLabel" for="liveIntervalInput">Live-Intervall (ms)</label>
+                                <input id="liveIntervalInput" type="number" min="250" step="50" value="500" disabled>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <button id="connectBtn" class="secondary" type="button">Verbindung prüfen</button>
+                    <button id="refreshControllerBtn" class="secondary" type="button">Status aktualisieren</button>
+                </div>
+
+                <div class="connection-panel">
+                    <div class="connection-row">
+                        <strong>Verbindungsstatus</strong>
+                        <span id="connectionBadge" class="badge"><span id="connectionDot" class="dot"></span><span id="connectionText">Nicht geprüft</span></span>
+                    </div>
+                    <div class="live-state">
+                        <strong id="liveStatusTitle">Live Status</strong>
+                        <label class="pill-toggle" for="liveStatusToggle">
+                            <input id="liveStatusToggle" type="checkbox">
+                            <span id="liveStatusToggleText">Live aus</span>
+                        </label>
+                    </div>
+
+                    <div class="controller-grid">
+                        <div class="info-card"><span class="k">Controller Zeit</span><span id="ctrlTime" class="v">-</span></div>
+                        <div class="info-card"><span class="k">Controller Zeitzone</span><span id="ctrlTimezone" class="v">-</span></div>
+                        <div class="info-card"><span class="k">Lokale Zeit</span><span id="ctrlLocal" class="v">-</span></div>
+                        <div class="info-card"><span class="k">Letzte Aktualisierung</span><span id="ctrlUpdated" class="v">-</span></div>
+                    </div>
+
+                </div>
+            </section>
+
+            <section class="section">
+                <div class="section-title">
+                    <h2 id="timeTitle">Zeit einstellen</h2>
+                </div>
+
+                <div class="row">
+                    <div>
+                        <label id="timeModeLabel" for="timeMode">Zeitmodus</label>
+                        <select id="timeMode">
+                            <option value="now">Jetzt (automatisch)</option>
+                            <option value="manual">Manuell einstellen</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label id="manualTimeLabel" for="manualTime">Manuelle Zeit</label>
+                        <input id="manualTime" type="datetime-local" step="1" disabled>
+                    </div>
+                </div>
+
+                <div id="autoNowPreview" class="auto-preview">
+                    <span id="autoNowText">Automatische Zeit: -</span>
+                </div>
+
+                <div class="row single">
+                    <button id="syncBtn" type="button">Zeit an Controller senden</button>
+                </div>
+            </section>
+        </main>
+    </section>
+
+    <div id="globalStatus" class="global-status" aria-live="polite">Bereit. Bitte Controller-IP im lokalen Netzwerk eintragen.</div>
+
+    <script src="./app.js"></script>
+</body>
+</html>

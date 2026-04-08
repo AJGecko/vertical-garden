@@ -1,3 +1,4 @@
+// Local storage keys.
 const storageKeys = {
     ip: "vg_device_ip",
     tz: "vg_timezone",
@@ -11,6 +12,10 @@ const storageKeys = {
     liveInterval: "vg_live_interval"
 };
 
+const DISPLAY_LOCALE = "de-DE";
+const DEFAULT_TIMEZONE = "Europe/Berlin";
+
+// Main form and action elements.
 const ipInputEl = document.getElementById("ipInput");
 const timezoneInputEl = document.getElementById("timezoneInput");
 const timeModeEl = document.getElementById("timeMode");
@@ -18,7 +23,6 @@ const manualTimeEl = document.getElementById("manualTime");
 const connectBtnEl = document.getElementById("connectBtn");
 const refreshControllerBtnEl = document.getElementById("refreshControllerBtn");
 const syncBtnEl = document.getElementById("syncBtn");
-const statusEl = document.getElementById("status");
 const autoNowTextEl = document.getElementById("autoNowText");
 const themeToggleEl = document.getElementById("themeToggle");
 const languageToggleEl = document.getElementById("languageToggle");
@@ -37,6 +41,7 @@ const liveStatusToggleTextEl = document.getElementById("liveStatusToggleText");
 const liveStatusTitleEl = document.getElementById("liveStatusTitle");
 const globalStatusEl = document.getElementById("globalStatus");
 
+// Headline and label elements.
 const titleTextEl = document.getElementById("titleText");
 const subtitleTextEl = document.getElementById("subtitleText");
 const settingsTitleEl = document.getElementById("settingsTitle");
@@ -45,17 +50,17 @@ const timeTitleEl = document.getElementById("timeTitle");
 const ipLabelEl = document.getElementById("ipLabel");
 const timezoneLabelEl = document.getElementById("timezoneLabel");
 const portLabelEl = document.getElementById("portLabel");
-const languageLabelEl = document.getElementById("languageLabel");
 const timeModeLabelEl = document.getElementById("timeModeLabel");
 const manualTimeLabelEl = document.getElementById("manualTimeLabel");
 
+// Connection and controller info elements.
 const connectionDotEl = document.getElementById("connectionDot");
 const connectionTextEl = document.getElementById("connectionText");
 const ctrlTimeEl = document.getElementById("ctrlTime");
 const ctrlTimezoneEl = document.getElementById("ctrlTimezone");
 const ctrlLocalEl = document.getElementById("ctrlLocal");
 const ctrlUpdatedEl = document.getElementById("ctrlUpdated");
-const ctrlState = { liveTimer: null, statusTimer: null };
+const ctrlState = { statusTimer: null };
 const clockState = {
     controllerBaseMs: null,
     controllerCapturedMs: null,
@@ -63,6 +68,7 @@ const clockState = {
     hasSample: false
 };
 
+// UI text dictionary.
 const ui = {
     de: {
         title: "Vertical Garden Panel",
@@ -131,6 +137,8 @@ const ui = {
         portEnabled: "Use custom port"
     }
 };
+
+// Mutable app flags.
 const appState = {
     language: "de",
     live: false,
@@ -140,21 +148,29 @@ const appState = {
     liveInterval: 500
 };
 
-const defaultUiState = {
-    language: "de",
-    live: false,
-    portEnabled: false,
-    advancedOpen: false,
-    port: "80"
-};
-
 const fallbackTimezones = [
-    "Europe/Berlin",
+    DEFAULT_TIMEZONE,
     "UTC",
     "Europe/Zurich",
     "Europe/Vienna"
 ];
 
+// Resets projected controller clock values.
+function resetClockState() {
+    clockState.controllerBaseMs = null;
+    clockState.controllerCapturedMs = null;
+    clockState.controllerTimeZone = null;
+    clockState.hasSample = false;
+}
+
+// Creates AbortController plus timeout cleanup handle.
+function createAbortTimeout(ms) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), ms);
+    return { controller, timeout };
+}
+
+// Theme handling.
 function applyTheme(theme) {
     document.documentElement.setAttribute("data-theme", theme);
     themeToggleEl.textContent = theme === "dark" ? "Light Mode" : "Dark Mode";
@@ -171,6 +187,7 @@ function initTheme() {
     applyTheme(prefersDark ? "dark" : "light");
 }
 
+// Shared status helpers.
 function setStatus(text, type) {
     globalStatusEl.textContent = text;
     globalStatusEl.className = "global-status";
@@ -185,6 +202,7 @@ function setConnectionState(text, type) {
     }
 }
 
+// Validation and URL helpers.
 function isValidIPv4(ip) {
     const parts = ip.trim().split(".");
     if (parts.length !== 4) return false;
@@ -213,6 +231,7 @@ function buildBaseUrl() {
     return `http://${deviceIp}:${port}`;
 }
 
+// Live mode helpers.
 function updateLiveLabel() {
     const text = appState.live ? ui[appState.language].liveOn : ui[appState.language].liveOff;
     liveStatusToggleTextEl.textContent = text;
@@ -238,6 +257,7 @@ function updateLiveRateState() {
     }
 }
 
+// Language and timezone rendering.
 function applyLanguage(lang) {
     appState.language = lang;
     languageToggleEl.textContent = lang === "de" ? "EN" : "DE";
@@ -274,7 +294,7 @@ function applyLanguage(lang) {
 }
 
 function loadTimezones() {
-    const currentTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Berlin";
+    const currentTz = Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT_TIMEZONE;
     let zones = fallbackTimezones;
 
     if (typeof Intl.supportedValuesOf === "function") {
@@ -285,9 +305,10 @@ function loadTimezones() {
         .map((tz) => `<option value="${tz}">${tz}</option>`)
         .join("");
 
-    timezoneInputEl.value = zones.includes(currentTz) ? currentTz : "Europe/Berlin";
+    timezoneInputEl.value = zones.includes(currentTz) ? currentTz : DEFAULT_TIMEZONE;
 }
 
+// Time conversion helpers.
 function toLocalDatetimeInputValue(date) {
     const d = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
     return d.toISOString().slice(0, 19);
@@ -307,32 +328,34 @@ function formatLocalDateTimeForPayload(date, timeZone) {
     return dtf.format(date).replace(" ", "T");
 }
 
+// Clock rendering.
 function updateAutoNowPreview() {
-    const timezone = timezoneInputEl.value || "Europe/Berlin";
-    const text = new Date().toLocaleString("de-DE", { timeZone: timezone });
+    const timezone = timezoneInputEl.value || DEFAULT_TIMEZONE;
+    const text = new Date().toLocaleString(DISPLAY_LOCALE, { timeZone: timezone });
     autoNowTextEl.textContent = `${ui[appState.language].autoLabel}: ${text} (${timezone})`;
 }
 
 function renderLiveClocks() {
-    const timezone = timezoneInputEl.value || "Europe/Berlin";
+    const timezone = timezoneInputEl.value || DEFAULT_TIMEZONE;
     const now = Date.now();
 
-    autoNowTextEl.textContent = `${ui[appState.language].autoLabel}: ${new Date(now).toLocaleString("de-DE", { timeZone: timezone })} (${timezone})`;
+    autoNowTextEl.textContent = `${ui[appState.language].autoLabel}: ${new Date(now).toLocaleString(DISPLAY_LOCALE, { timeZone: timezone })} (${timezone})`;
 
     if (!clockState.hasSample || clockState.controllerBaseMs === null || clockState.controllerCapturedMs === null) {
         ctrlTimeEl.textContent = "-";
-        ctrlLocalEl.textContent = new Date(now).toLocaleString("de-DE", { timeZone: timezone });
+        ctrlLocalEl.textContent = new Date(now).toLocaleString(DISPLAY_LOCALE, { timeZone: timezone });
         return;
     }
 
     const elapsed = now - clockState.controllerCapturedMs;
     const projectedControllerTime = new Date(clockState.controllerBaseMs + elapsed);
-    ctrlTimeEl.textContent = projectedControllerTime.toLocaleString("de-DE", {
+    ctrlTimeEl.textContent = projectedControllerTime.toLocaleString(DISPLAY_LOCALE, {
         timeZone: clockState.controllerTimeZone || timezone
     });
-    ctrlLocalEl.textContent = new Date(now).toLocaleString("de-DE", { timeZone: timezone });
+    ctrlLocalEl.textContent = new Date(now).toLocaleString(DISPLAY_LOCALE, { timeZone: timezone });
 }
 
+// Controller communication.
 async function updateControllerSettings() {
     const deviceIp = ipInputEl.value.trim();
     if (!isValidIPv4(deviceIp)) {
@@ -344,8 +367,7 @@ async function updateControllerSettings() {
     refreshControllerBtnEl.disabled = true;
     setStatus(appState.language === "de" ? "Sende Settings an den Controller..." : "Sending settings to controller...", "muted");
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const { controller, timeout } = createAbortTimeout(10000);
 
     try {
         const endpoint = `${buildBaseUrl()}/api/settings`;
@@ -387,6 +409,7 @@ async function updateControllerSettings() {
     }
 }
 
+// Manual time parsing and timezone conversion.
 function parseDatetimeLocal(value) {
     const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
     if (!match) return null;
@@ -449,6 +472,7 @@ function updateManualInputState() {
     }
 }
 
+// Form persistence.
 function saveFormState() {
     localStorage.setItem(storageKeys.ip, ipInputEl.value.trim());
     localStorage.setItem(storageKeys.tz, timezoneInputEl.value);
@@ -522,6 +546,7 @@ function restoreFormState() {
     updateManualInputState();
 }
 
+// Controller state mapping and polling.
 function renderControllerData(data) {
     const timezone = data.timezone || data.tz || "-";
     const local = data.localTime || data.localDateTime || data.time || data.datetime || data.isoTime || null;
@@ -532,7 +557,7 @@ function renderControllerData(data) {
         const parsed = new Date(local);
         displayTime = Number.isNaN(parsed.getTime())
             ? String(local)
-            : parsed.toLocaleString("de-DE", { timeZone: timezone !== "-" ? timezone : undefined });
+            : parsed.toLocaleString(DISPLAY_LOCALE, { timeZone: timezone !== "-" ? timezone : undefined });
         parsedControllerDate = Number.isNaN(parsed.getTime()) ? null : parsed;
     }
 
@@ -542,12 +567,12 @@ function renderControllerData(data) {
         clockState.controllerTimeZone = timezone !== "-" ? timezone : null;
         clockState.hasSample = true;
     } else {
-        clockState.hasSample = false;
+        resetClockState();
         ctrlTimeEl.textContent = displayTime;
     }
 
     ctrlTimezoneEl.textContent = timezone;
-    ctrlUpdatedEl.textContent = new Date().toLocaleString("de-DE");
+    ctrlUpdatedEl.textContent = new Date().toLocaleString(DISPLAY_LOCALE);
     renderLiveClocks();
 }
 
@@ -565,6 +590,7 @@ function startPolling() {
     }, getLiveInterval());
 }
 
+// Full UI reset.
 function resetSettings() {
     const confirmText = appState.language === "de"
         ? "Reset wirklich ausfuehren?"
@@ -577,7 +603,7 @@ function resetSettings() {
     clearSavedState();
 
     ipInputEl.value = "";
-    timezoneInputEl.value = Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Berlin";
+    timezoneInputEl.value = Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT_TIMEZONE;
     timeModeEl.value = "now";
     manualTimeEl.value = "";
     portEnabledEl.checked = false;
@@ -607,12 +633,10 @@ function resetSettings() {
     ctrlTimezoneEl.textContent = "-";
     ctrlLocalEl.textContent = "-";
     ctrlUpdatedEl.textContent = "-";
-    clockState.controllerBaseMs = null;
-    clockState.controllerCapturedMs = null;
-    clockState.controllerTimeZone = null;
-    clockState.hasSample = false;
+    resetClockState();
 }
 
+// Read status data from known controller endpoints.
 async function fetchControllerData(showFeedback = true) {
     const deviceIp = ipInputEl.value.trim();
     if (!isValidIPv4(deviceIp)) {
@@ -621,8 +645,7 @@ async function fetchControllerData(showFeedback = true) {
         return null;
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
+    const { controller, timeout } = createAbortTimeout(6000);
 
     const baseUrl = buildBaseUrl();
     const endpoints = [
@@ -675,6 +698,7 @@ async function fetchControllerData(showFeedback = true) {
     }
 }
 
+// Sends time payload to controller.
 async function syncTime() {
     const deviceIp = ipInputEl.value.trim();
     const timezone = timezoneInputEl.value;
@@ -717,8 +741,7 @@ async function syncTime() {
     syncBtnEl.disabled = true;
     setStatus("Sende Anfrage an den Controller...", "muted");
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const { controller, timeout } = createAbortTimeout(10000);
 
     try {
         const endpoint = `${buildBaseUrl()}/api/time`;
@@ -737,7 +760,7 @@ async function syncTime() {
         }
 
         setConnectionState("Verbunden", "ok");
-        setStatus(`Uhrzeit erfolgreich gesetzt (${selectedDate.toLocaleString("de-DE", { timeZone: timezone })} - ${timezone}).`, null);
+        setStatus(`Uhrzeit erfolgreich gesetzt (${selectedDate.toLocaleString(DISPLAY_LOCALE, { timeZone: timezone })} - ${timezone}).`, null);
         await fetchControllerData();
     } catch (error) {
         if (error.name === "AbortError") {
@@ -756,6 +779,7 @@ async function syncTime() {
     }
 }
 
+// Initial setup.
 initTheme();
 loadTimezones();
 restoreFormState();
@@ -767,6 +791,7 @@ if (appState.live) {
     startPolling();
 }
 
+// Event wiring.
 syncBtnEl.addEventListener("click", syncTime);
 connectBtnEl.addEventListener("click", async () => {
     setStatus(appState.language === "de" ? "Pruefe Verbindung..." : "Checking connection...", "muted");
@@ -829,10 +854,7 @@ timeModeEl.addEventListener("change", () => {
 ipInputEl.addEventListener("change", () => {
     saveFormState();
     setConnectionState("Nicht geprueft", "");
-    clockState.controllerBaseMs = null;
-    clockState.controllerCapturedMs = null;
-    clockState.controllerTimeZone = null;
-    clockState.hasSample = false;
+    resetClockState();
     renderLiveClocks();
 });
 timezoneInputEl.addEventListener("change", () => {

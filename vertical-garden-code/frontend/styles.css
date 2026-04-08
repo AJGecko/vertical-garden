@@ -1,3 +1,4 @@
+/* Theme tokens (light). */
 :root {
     --bg-1: #e9f7ef;
     --bg-2: #f5fbf8;
@@ -28,6 +29,7 @@
     --status-muted-border: #e2eee8;
 }
 
+/* Theme token overrides (dark). */
 html[data-theme="dark"] {
     --bg-1: #13221c;
     --bg-2: #111a17;
@@ -58,6 +60,7 @@ html[data-theme="dark"] {
     --status-muted-border: #2c4037;
 }
 
+/* Base layout. */
 * {
     box-sizing: border-box;
 }
@@ -76,6 +79,7 @@ body {
     padding: 24px;
 }
 
+/* Main shell and header. */
 .panel {
     width: 100%;
     max-width: 840px;
@@ -142,6 +146,7 @@ body {
     color: var(--subtle);
 }
 
+/* Generic form controls. */
 .row {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -218,6 +223,7 @@ button:disabled {
     transform: none;
 }
 
+/* Shared section framing. */
 .section {
     border: 1px solid var(--line);
     border-radius: 14px;
@@ -267,6 +273,7 @@ button:disabled {
     accent-color: var(--brand);
 }
 
+/* Connection/status area. */
 .connection-panel {
     border: 1px solid var(--line);
     background: var(--soft);
@@ -311,6 +318,7 @@ button:disabled {
     background: var(--dot-error);
 }
 
+/* Controller info cards. */
 .controller-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -346,6 +354,7 @@ button:disabled {
     background: var(--soft);
 }
 
+/* Status message variants. */
 .status {
     border-radius: 10px;
     padding: 11px 12px;
@@ -376,6 +385,7 @@ button:disabled {
     border-color: var(--status-muted-border);
 }
 
+/* Advanced settings area. */
 .advanced-panel {
     border: 1px dashed var(--line);
     border-radius: 12px;
@@ -451,6 +461,7 @@ button:disabled {
     flex-wrap: wrap;
 }
 
+/* Utility button styles. */
 .tiny-button {
     width: auto;
     justify-self: start;
@@ -470,6 +481,7 @@ button:disabled {
     border: 1px solid var(--error);
 }
 
+/* Responsive layout tweaks. */
 @media (max-width: 680px) {
     .row {
         grid-template-columns: 1fr;

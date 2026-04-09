@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vertical Garden Offline App</title>
+  <style>
+    :root {
+      --bg: #f3f7f2;
+      --panel: #ffffff;
+      --text: #1f2d1f;
+      --muted: #58705a;
+      --ok: #1e8a42;
+      --warn: #bd8b00;
+      --err: #b53c2e;
+      --border: #dce7db;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: linear-gradient(180deg, #eef5eb 0%, #f9fcf8 100%);
+      color: var(--text);
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      height: 100%;
+    }
+
+    .status-bar {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+      padding: 10px 14px;
+      flex-wrap: wrap;
+    }
+
+    .status-main {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 240px;
+      flex: 1;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--warn);
+      flex: 0 0 auto;
+    }
+
+    .dot.online {
+      background: var(--ok);
+    }
+
+    .dot.offline {
+      background: var(--err);
+    }
+
+    .meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 13px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      border: 1px solid #9cb39d;
+      background: #edf5eb;
+      color: #224229;
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    .btn:hover {
+      background: #e2f0df;
+    }
+
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      background: #fff;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <div class="status-bar">
+      <div class="status-main">
+        <span id="dot" class="dot"></span>
+        <strong id="statusText">Initialisierung ...</strong>
+      </div>
+      <div class="meta">
+        <span id="sourceText">Quelle: -</span>
+        <span id="updatedAt">Stand: -</span>
+        <button id="refreshBtn" class="btn" type="button">Jetzt aktualisieren</button>
+      </div>
+    </div>
+
+    <iframe id="appFrame" title="Vertical Garden Panel"></iframe>
+  </div>
+
+  <script>
+    (function () {
+      const REMOTE_BASE = "https://vertical-garden-panel.vercel.app";
+      const REMOTE_HTML = REMOTE_BASE + "/";
+      const STORAGE_SNAPSHOT = "vg.panel.snapshot.v1";
+      const STORAGE_UPDATED = "vg.panel.updatedAt.v1";
+
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const sourceText = document.getElementById("sourceText");
+      const updatedAt = document.getElementById("updatedAt");
+      const refreshBtn = document.getElementById("refreshBtn");
+      const frame = document.getElementById("appFrame");
+
+      function setNetworkState() {
+        dot.classList.remove("online", "offline");
+        dot.classList.add(navigator.onLine ? "online" : "offline");
+      }
+
+      function setStatus(message) {
+        statusText.textContent = message;
+      }
+
+      function setSource(source) {
+        sourceText.textContent = "Quelle: " + source;
+      }
+
+      function formatDate(iso) {
+        if (!iso) {
+          return "-";
+        }
+        const date = new Date(iso);
+        if (Number.isNaN(date.getTime())) {
+          return "-";
+        }
+        return date.toLocaleString("de-DE");
+      }
+
+      function setUpdatedAt(iso) {
+        updatedAt.textContent = "Stand: " + formatDate(iso);
+      }
+
+      async function fetchText(url) {
+        const response = await fetch(url, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error("Fehler beim Laden: " + url + " (" + response.status + ")");
+        }
+        return response.text();
+      }
+
+      function makeAbsolute(url, base) {
+        return new URL(url, base).toString();
+      }
+
+      function cleanForEmbedding(doc) {
+        const baseTag = doc.createElement("base");
+        baseTag.setAttribute("href", REMOTE_BASE + "/");
+        const head = doc.head || doc.getElementsByTagName("head")[0];
+        if (head) {
+          head.prepend(baseTag);
+        }
+      }
+
+      async function inlineStyles(doc) {
+        const links = Array.from(doc.querySelectorAll('link[rel="stylesheet"][href]'));
+        for (const link of links) {
+          const href = link.getAttribute("href");
+          if (!href) {
+            continue;
+          }
+          const absolute = makeAbsolute(href, REMOTE_HTML);
+          try {
+            const css = await fetchText(absolute);
+            const style = doc.createElement("style");
+            style.setAttribute("data-inlined-from", absolute);
+            style.textContent = css;
+            link.replaceWith(style);
+          } catch (_error) {
+            // Falls CSS nicht geladen werden kann, lassen wir den Original-Link stehen.
+          }
+        }
+      }
+
+      async function inlineScripts(doc) {
+        const scripts = Array.from(doc.querySelectorAll("script[src]"));
+        for (const script of scripts) {
+          const src = script.getAttribute("src");
+          if (!src) {
+            continue;
+          }
+          const absolute = makeAbsolute(src, REMOTE_HTML);
+          try {
+            const js = await fetchText(absolute);
+            const inline = doc.createElement("script");
+            inline.setAttribute("data-inlined-from", absolute);
+            inline.textContent = js;
+            script.replaceWith(inline);
+          } catch (_error) {
+            // Falls JS nicht geladen werden kann, lassen wir den Original-Script-Tag stehen.
+          }
+        }
+      }
+
+      async function buildSnapshot() {
+        const html = await fetchText(REMOTE_HTML);
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, "text/html");
+
+        cleanForEmbedding(doc);
+        await inlineStyles(doc);
+        await inlineScripts(doc);
+
+        return "<!doctype html>\n" + doc.documentElement.outerHTML;
+      }
+
+      function storeSnapshot(html) {
+        const now = new Date().toISOString();
+        localStorage.setItem(STORAGE_SNAPSHOT, html);
+        localStorage.setItem(STORAGE_UPDATED, now);
+        setUpdatedAt(now);
+      }
+
+      function readSnapshot() {
+        return {
+          html: localStorage.getItem(STORAGE_SNAPSHOT),
+          updated: localStorage.getItem(STORAGE_UPDATED)
+        };
+      }
+
+      function render(html) {
+        frame.srcdoc = html;
+      }
+
+      async function loadOnlineThenCache() {
+        setStatus("Online erkannt, lade aktuelle Version ...");
+        const snapshot = await buildSnapshot();
+        storeSnapshot(snapshot);
+        render(snapshot);
+        setSource("Internet (aktualisiert)");
+        setStatus("Aktuelle Version geladen.");
+      }
+
+      function loadFromCacheOrFallback() {
+        const cached = readSnapshot();
+        setUpdatedAt(cached.updated);
+
+        if (cached.html) {
+          render(cached.html);
+          setSource("Lokaler Speicher (offline)");
+          setStatus("Offline: gespeicherte Version geladen.");
+          return true;
+        }
+
+        render(
+          "<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Offline</title><style>body{font-family:Segoe UI,Tahoma,sans-serif;margin:0;padding:24px;background:#f7faf7;color:#203321}h1{margin-top:0}p{line-height:1.5}</style></head><body><h1>Keine gespeicherte Version vorhanden</h1><p>Diese App wurde noch nicht online synchronisiert.</p><p>Verbinde das Gerät mit dem Internet und klicke auf \"Jetzt aktualisieren\".</p></body></html>"
+        );
+        setSource("Kein Cache");
+        setStatus("Offline und noch kein lokaler Stand gespeichert.");
+        return false;
+      }
+
+      async function bootstrap() {
+        setNetworkState();
+
+        const cached = readSnapshot();
+        setUpdatedAt(cached.updated);
+
+        if (navigator.onLine) {
+          try {
+            await loadOnlineThenCache();
+            return;
+          } catch (_error) {
+            setStatus("Online fehlgeschlagen, nutze lokalen Stand ...");
+            const hasCache = loadFromCacheOrFallback();
+            if (!hasCache) {
+              setStatus("Online fehlgeschlagen und kein Cache vorhanden.");
+            }
+          }
+        } else {
+          loadFromCacheOrFallback();
+        }
+      }
+
+      refreshBtn.addEventListener("click", async function () {
+        setNetworkState();
+        if (!navigator.onLine) {
+          loadFromCacheOrFallback();
+          return;
+        }
+
+        try {
+          await loadOnlineThenCache();
+        } catch (_error) {
+          setStatus("Update fehlgeschlagen. Lokale Version bleibt aktiv.");
+          loadFromCacheOrFallback();
+        }
+      });
+
+      window.addEventListener("online", function () {
+        setNetworkState();
+        setStatus("Internet wieder verfügbar. Du kannst jetzt aktualisieren.");
+      });
+
+      window.addEventListener("offline", function () {
+        setNetworkState();
+        loadFromCacheOrFallback();
+      });
+
+      bootstrap();
+    })();
+  </script>
+</body>
+</html>

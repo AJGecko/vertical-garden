@@ -27,9 +27,11 @@ Datei: `wemos_d1_mini_backend_simple.ino`
 Setze oben deine WLAN-Daten:
 
 ```cpp
-const char* WIFI_SSID = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+const char* DEFAULT_WIFI_SSID = "YOUR_WIFI_SSID";
+const char* DEFAULT_WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 ```
+
+Achte darauf, dass die erste Zeile der Sketch-Datei mit `#include` beginnt. Wenn das `#` fehlt, entstehen genau die Compilerfehler aus deiner Meldung.
 
 ## 3) Flashen
 

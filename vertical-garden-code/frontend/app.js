@@ -107,7 +107,9 @@ const ctrlState = { statusTimer: null };
 const clockState = {
     controllerDisplayText: "-",
     controllerTimeZone: null,
-    hasSample: false
+    hasSample: false,
+    controllerEpochMs: null,
+    sampleCapturedAtMs: null
 };
 
 // UI text dictionary.
@@ -187,7 +189,8 @@ const appState = {
     portEnabled: false,
     advancedOpen: false,
     liveRateEnabled: false,
-    liveInterval: 500
+    liveInterval: 500,
+    lightDraftActive: false
 };
 
 const fallbackTimezones = [
@@ -202,6 +205,40 @@ function resetClockState() {
     clockState.controllerDisplayText = "-";
     clockState.controllerTimeZone = null;
     clockState.hasSample = false;
+    clockState.controllerEpochMs = null;
+    clockState.sampleCapturedAtMs = null;
+}
+
+function parseControllerIsoToEpochMs(value) {
+    if (typeof value !== "string") return null;
+
+    const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})$/);
+    if (!match) return null;
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const hour = Number(match[4]);
+    const minute = Number(match[5]);
+    const second = Number(match[6]);
+
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)
+        || !Number.isFinite(hour) || !Number.isFinite(minute) || !Number.isFinite(second)) {
+        return null;
+    }
+
+    return Date.UTC(year, month - 1, day, hour, minute, second);
+}
+
+function formatEpochMsAsControllerText(epochMs) {
+    const d = new Date(epochMs);
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    const hour = String(d.getUTCHours()).padStart(2, "0");
+    const minute = String(d.getUTCMinutes()).padStart(2, "0");
+    const second = String(d.getUTCSeconds()).padStart(2, "0");
+    return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
 }
 
 // Creates AbortController plus timeout cleanup handle.
@@ -388,8 +425,13 @@ function renderLiveClocks() {
         return;
     }
 
-    // Keep the controller time as last reported value from backend (no artificial ticking).
-    ctrlTimeEl.textContent = clockState.controllerDisplayText;
+    if (Number.isFinite(clockState.controllerEpochMs) && Number.isFinite(clockState.sampleCapturedAtMs)) {
+        const elapsed = now - clockState.sampleCapturedAtMs;
+        const projectedEpochMs = clockState.controllerEpochMs + Math.max(0, elapsed);
+        ctrlTimeEl.textContent = formatEpochMsAsControllerText(projectedEpochMs);
+    } else {
+        ctrlTimeEl.textContent = clockState.controllerDisplayText;
+    }
     ctrlLocalEl.textContent = new Date(now).toLocaleString(DISPLAY_LOCALE, { timeZone: timezone });
 }
 
@@ -484,27 +526,28 @@ function renderGardenData(data) {
     updatePumpModeLabels();
 
     const ledOn = Boolean(data.ledStripOn);
-    lightEnabledToggleEl.checked = ledOn;
-    lightEnabledTextEl.textContent = ledOn ? "An" : "Aus";
-
-    if (Number.isFinite(Number(data.ledStripR))) setIfNotFocused(lightREl, String(data.ledStripR));
-    if (Number.isFinite(Number(data.ledStripG))) setIfNotFocused(lightGEl, String(data.ledStripG));
-    if (Number.isFinite(Number(data.ledStripB))) setIfNotFocused(lightBEl, String(data.ledStripB));
-    if (typeof data.ledEffect === "string") {
-        lightEffectSelectEl.value = data.ledEffect;
+    if (!appState.lightDraftActive) {
+        lightEnabledToggleEl.checked = ledOn;
+        if (Number.isFinite(Number(data.ledStripR))) setIfNotFocused(lightREl, String(data.ledStripR));
+        if (Number.isFinite(Number(data.ledStripG))) setIfNotFocused(lightGEl, String(data.ledStripG));
+        if (Number.isFinite(Number(data.ledStripB))) setIfNotFocused(lightBEl, String(data.ledStripB));
+        if (typeof data.ledEffect === "string") {
+            lightEffectSelectEl.value = data.ledEffect;
+        }
+        if (Number.isFinite(Number(data.ledEffectSpeedMs))) {
+            setIfNotFocused(lightEffectSpeedInputEl, String(data.ledEffectSpeedMs));
+        }
+        if (typeof data.lightScheduleEnabled === "boolean") {
+            lightScheduleEnabledToggleEl.checked = data.lightScheduleEnabled;
+        }
+        if (Number.isFinite(Number(data.lightOnMinute))) {
+            setIfNotFocused(lightOnTimeInputEl, minutesToTimeInputValue(data.lightOnMinute));
+        }
+        if (Number.isFinite(Number(data.lightOffMinute))) {
+            setIfNotFocused(lightOffTimeInputEl, minutesToTimeInputValue(data.lightOffMinute));
+        }
     }
-    if (Number.isFinite(Number(data.ledEffectSpeedMs))) {
-        setIfNotFocused(lightEffectSpeedInputEl, String(data.ledEffectSpeedMs));
-    }
-    if (typeof data.lightScheduleEnabled === "boolean") {
-        lightScheduleEnabledToggleEl.checked = data.lightScheduleEnabled;
-    }
-    if (Number.isFinite(Number(data.lightOnMinute))) {
-        setIfNotFocused(lightOnTimeInputEl, minutesToTimeInputValue(data.lightOnMinute));
-    }
-    if (Number.isFinite(Number(data.lightOffMinute))) {
-        setIfNotFocused(lightOffTimeInputEl, minutesToTimeInputValue(data.lightOffMinute));
-    }
+    lightEnabledTextEl.textContent = lightEnabledToggleEl.checked ? "An" : "Aus";
     updateLightScheduleLabel();
     updateLightPreview();
 
@@ -562,20 +605,22 @@ function renderGardenSettingsData(data) {
     if (Number.isFinite(Number(data.autoPumpCooldownMs))) {
         setIfNotFocused(autoPumpCooldownInputEl, String(data.autoPumpCooldownMs));
     }
-    if (typeof data.lightScheduleEnabled === "boolean") {
-        lightScheduleEnabledToggleEl.checked = data.lightScheduleEnabled;
-    }
-    if (Number.isFinite(Number(data.lightOnMinute))) {
-        setIfNotFocused(lightOnTimeInputEl, minutesToTimeInputValue(data.lightOnMinute));
-    }
-    if (Number.isFinite(Number(data.lightOffMinute))) {
-        setIfNotFocused(lightOffTimeInputEl, minutesToTimeInputValue(data.lightOffMinute));
-    }
-    if (typeof data.ledEffect === "string") {
-        lightEffectSelectEl.value = data.ledEffect;
-    }
-    if (Number.isFinite(Number(data.ledEffectSpeedMs))) {
-        setIfNotFocused(lightEffectSpeedInputEl, String(data.ledEffectSpeedMs));
+    if (!appState.lightDraftActive) {
+        if (typeof data.lightScheduleEnabled === "boolean") {
+            lightScheduleEnabledToggleEl.checked = data.lightScheduleEnabled;
+        }
+        if (Number.isFinite(Number(data.lightOnMinute))) {
+            setIfNotFocused(lightOnTimeInputEl, minutesToTimeInputValue(data.lightOnMinute));
+        }
+        if (Number.isFinite(Number(data.lightOffMinute))) {
+            setIfNotFocused(lightOffTimeInputEl, minutesToTimeInputValue(data.lightOffMinute));
+        }
+        if (typeof data.ledEffect === "string") {
+            lightEffectSelectEl.value = data.ledEffect;
+        }
+        if (Number.isFinite(Number(data.ledEffectSpeedMs))) {
+            setIfNotFocused(lightEffectSpeedInputEl, String(data.ledEffectSpeedMs));
+        }
     }
 
     updatePumpModeLabels();
@@ -628,7 +673,12 @@ async function saveGardenSettings() {
 }
 
 async function saveLightScheduleOnly() {
-    await saveGardenSettings();
+    appState.lightDraftActive = true;
+    try {
+        await saveGardenSettings();
+    } finally {
+        appState.lightDraftActive = false;
+    }
 }
 
 async function applyLightEffect() {
@@ -638,6 +688,7 @@ async function applyLightEffect() {
     }
 
     lightEffectApplyBtnEl.disabled = true;
+    appState.lightDraftActive = true;
     try {
         const { r, g, b } = getLightValues();
         const payload = {
@@ -654,6 +705,7 @@ async function applyLightEffect() {
     } catch (error) {
         setStatus(`Effekt-Fehler: ${error.message}`, "error");
     } finally {
+        appState.lightDraftActive = false;
         lightEffectApplyBtnEl.disabled = false;
     }
 }
@@ -860,6 +912,15 @@ function renderControllerData(data) {
         displayTime = String(local).replace("T", " ");
     }
 
+    const parsedEpochMs = parseControllerIsoToEpochMs(String(local || ""));
+    if (Number.isFinite(parsedEpochMs)) {
+        clockState.controllerEpochMs = parsedEpochMs;
+        clockState.sampleCapturedAtMs = Date.now();
+    } else {
+        clockState.controllerEpochMs = null;
+        clockState.sampleCapturedAtMs = null;
+    }
+
     clockState.controllerDisplayText = displayTime;
     clockState.controllerTimeZone = timezone !== "-" ? timezone : null;
     clockState.hasSample = displayTime !== "-";
@@ -932,6 +993,7 @@ async function applyLight() {
         return;
     }
     lightApplyBtnEl.disabled = true;
+    appState.lightDraftActive = true;
     try {
         const { r, g, b } = getLightValues();
         await postJson("/api/led", { on: lightEnabledToggleEl.checked, r, g, b });
@@ -940,6 +1002,7 @@ async function applyLight() {
     } catch (error) {
         setStatus(`RGB-Fehler: ${error.message}`, "error");
     } finally {
+        appState.lightDraftActive = false;
         lightApplyBtnEl.disabled = false;
     }
 }
@@ -1263,6 +1326,7 @@ gardenSettingsSaveBtnEl.addEventListener("click", saveGardenSettings);
 lightScheduleSaveBtnEl.addEventListener("click", saveLightScheduleOnly);
 sensorRefreshBtnEl.addEventListener("click", refreshSensors);
 lightEnabledToggleEl.addEventListener("change", () => {
+    appState.lightDraftActive = true;
     lightEnabledTextEl.textContent = lightEnabledToggleEl.checked ? "An" : "Aus";
 });
 manualPumpControlToggleEl.addEventListener("change", async () => {
@@ -1270,10 +1334,34 @@ manualPumpControlToggleEl.addEventListener("change", async () => {
     await saveGardenSettings();
 });
 autoPumpEnabledToggleEl.addEventListener("change", updatePumpModeLabels);
-lightScheduleEnabledToggleEl.addEventListener("change", updateLightScheduleLabel);
-lightREl.addEventListener("input", updateLightPreview);
-lightGEl.addEventListener("input", updateLightPreview);
-lightBEl.addEventListener("input", updateLightPreview);
+lightScheduleEnabledToggleEl.addEventListener("change", () => {
+    appState.lightDraftActive = true;
+    updateLightScheduleLabel();
+});
+lightREl.addEventListener("input", () => {
+    appState.lightDraftActive = true;
+    updateLightPreview();
+});
+lightGEl.addEventListener("input", () => {
+    appState.lightDraftActive = true;
+    updateLightPreview();
+});
+lightBEl.addEventListener("input", () => {
+    appState.lightDraftActive = true;
+    updateLightPreview();
+});
+lightEffectSelectEl.addEventListener("change", () => {
+    appState.lightDraftActive = true;
+});
+lightEffectSpeedInputEl.addEventListener("input", () => {
+    appState.lightDraftActive = true;
+});
+lightOnTimeInputEl.addEventListener("input", () => {
+    appState.lightDraftActive = true;
+});
+lightOffTimeInputEl.addEventListener("input", () => {
+    appState.lightDraftActive = true;
+});
 
 // Initial render for advanced section and live status
 advancedContentEl.hidden = !appState.advancedOpen;

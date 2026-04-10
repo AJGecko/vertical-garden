@@ -1073,6 +1073,8 @@ void setup() {
 }
 
 void loop() {
+  updateLocalTimeFromClock();
+
   if (dnsStarted) {
     dnsServer.processNextRequest();
   }

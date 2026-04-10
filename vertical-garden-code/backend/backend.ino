@@ -25,7 +25,7 @@ const uint8_t PIN_BTN_MORE = D5;
 const uint8_t PIN_BTN_LESS = D6;
 const uint8_t PIN_BTN_ENTER = D7;
 const uint8_t PIN_LED_STRIP = D1;
-const uint16_t LED_STRIP_PIXELS = 1;
+const uint16_t LED_STRIP_PIXELS = 18;
 
 const bool PUMP_ACTIVE_HIGH = true;
 const uint32_t BUTTON_DEBOUNCE_MS = 35;

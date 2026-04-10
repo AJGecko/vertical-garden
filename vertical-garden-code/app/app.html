@@ -22,26 +22,78 @@
 
     html, body {
       margin: 0;
-      height: 100%;
+      min-height: 100vh;
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
       background: linear-gradient(180deg, #eef5eb 0%, #f9fcf8 100%);
       color: var(--text);
       font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
     }
 
     .app-shell {
-      display: grid;
-      grid-template-rows: auto 1fr;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
       height: 100%;
+      width: 100vw;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.45);
     }
 
     .status-bar {
       display: flex;
+      flex-direction: column;
+      gap: 10px;
+      border-bottom: 1px solid rgba(156, 179, 157, 0.35);
+      background: rgba(255, 255, 255, 0.96);
+      padding: 14px 18px;
+      box-shadow: 0 12px 32px rgba(15, 38, 20, 0.08);
+      backdrop-filter: blur(12px);
+    }
+
+    .status-bar.hidden {
+      display: none;
+    }
+
+    .status-header {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .collapse-fab {
+      position: fixed;
+      top: 14px;
+      right: 14px;
+      z-index: 20;
+      width: 46px;
+      height: 46px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 0 18px 18px 0;
+      box-shadow: 0 14px 30px rgba(15, 38, 20, 0.14);
+      background: rgba(255, 255, 255, 0.97);
+      border: 1px solid rgba(156, 179, 157, 0.9);
+      font-size: 22px;
+      line-height: 1;
+    }
+    .collapse-fab.hidden {
+      display: none;
+    }
+
+    .status-content {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .status-row {
+      display: flex;
       gap: 12px;
       align-items: center;
       justify-content: space-between;
-      border-bottom: 1px solid var(--border);
-      background: var(--panel);
-      padding: 10px 14px;
       flex-wrap: wrap;
     }
 
@@ -51,6 +103,13 @@
       gap: 10px;
       min-width: 240px;
       flex: 1;
+    }
+
+    .status-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
     }
 
     .dot {
@@ -78,39 +137,84 @@
       flex-wrap: wrap;
     }
 
+    .status-bar.hidden {
+      display: none;
+    }
+
     .btn {
-      border: 1px solid #9cb39d;
-      background: #edf5eb;
-      color: #224229;
-      border-radius: 10px;
-      padding: 8px 12px;
+      border: 1px solid rgba(156, 179, 157, 0.9);
+      background: #f5faf4;
+      color: #1f2d1f;
+      border-radius: 12px;
+      padding: 9px 14px;
       font-size: 14px;
       cursor: pointer;
+      transition: transform 150ms ease, background 150ms ease, border-color 150ms ease;
     }
 
     .btn:hover {
-      background: #e2f0df;
+      background: #ecf6e6;
+      transform: translateY(-1px);
+      border-color: rgba(156, 179, 157, 1);
+    }
+
+    .toggle-btn {
+      width: 38px;
+      height: 38px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      font-size: 18px;
+      min-width: auto;
+      border-color: rgba(156, 179, 157, 0.8);
+      background: #f9fcf7;
     }
 
     iframe {
       width: 100%;
-      height: 100%;
-      border: 0;
+      flex: 1;
+      min-height: 0;
+      min-width: 0;
+      border: 1px solid rgba(156, 179, 157, 0.15);
       background: #fff;
+    }
+
+    html, body, .app-shell {
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+
+    body::-webkit-scrollbar,
+    .app-shell::-webkit-scrollbar,
+    iframe::-webkit-scrollbar {
+      width: 0;
+      height: 0;
     }
   </style>
 </head>
 <body>
+  <button id="toggleInfoFab" class="btn collapse-fab hidden" type="button" aria-expanded="false"></button>
+
   <div class="app-shell">
-    <div class="status-bar">
-      <div class="status-main">
-        <span id="dot" class="dot"></span>
-        <strong id="statusText">Initialisierung ...</strong>
-      </div>
-      <div class="meta">
-        <span id="sourceText">Quelle: -</span>
-        <span id="updatedAt">Stand: -</span>
-        <button id="refreshBtn" class="btn" type="button">Jetzt aktualisieren</button>
+    <div id="statusBar" class="status-bar">
+      <div id="statusContent" class="status-content">
+        <div class="status-row">
+          <div class="status-main">
+            <span id="dot" class="dot"></span>
+            <strong id="statusText"></strong>
+          </div>
+          <div class="status-actions">
+            <button id="refreshBtn" class="btn" type="button"></button>
+            <button id="toggleInfoBtn" class="btn toggle-btn" type="button" aria-expanded="true"></button>
+          </div>
+        </div>
+
+        <div class="meta" id="metaInfo">
+          <span id="sourceText"></span>
+          <span id="updatedAt"></span>
+        </div>
       </div>
     </div>
 
@@ -123,13 +227,78 @@
       const REMOTE_HTML = REMOTE_BASE + "/";
       const STORAGE_SNAPSHOT = "vg.panel.snapshot.v1";
       const STORAGE_UPDATED = "vg.panel.updatedAt.v1";
+      const STORAGE_INFO_COLLAPSED = "vg.panel.infoCollapsed.v1";
+
+      const userLocale = navigator.language || "en";
+      const language = userLocale.toLowerCase().startsWith("de") ? "de" : "en";
+      const i18n = {
+        de: {
+          pageTitle: "Vertical Garden Offline App",
+          frameTitle: "Vertical Garden Panel",
+          sourceLabel: "Quelle",
+          updatedLabel: "Stand",
+          refresh: "Jetzt aktualisieren",
+          collapseInfo: "Info ausblenden",
+          expandInfo: "Info einblenden",
+          initializing: "Initialisierung ...",
+          onlineDetectedLoading: "Online erkannt, lade aktuelle Version ...",
+          onlineUpdatedSource: "Internet (aktualisiert)",
+          currentVersionLoaded: "Aktuelle Version geladen.",
+          cachedOfflineSource: "Lokaler Speicher (offline)",
+          offlineLoadedCached: "Offline: gespeicherte Version geladen.",
+          noCacheSource: "Kein Cache",
+          offlineNoLocalState: "Offline und noch kein lokaler Stand gespeichert.",
+          onlineFailedUsingLocal: "Online fehlgeschlagen, nutze lokalen Stand ...",
+          onlineFailedNoCache: "Online fehlgeschlagen und kein Cache vorhanden.",
+          updateFailedKeepLocal: "Update fehlgeschlagen. Lokale Version bleibt aktiv.",
+          internetBackCanRefresh: "Internet wieder verfugbar. Du kannst jetzt aktualisieren.",
+          fallbackTitle: "Keine gespeicherte Version vorhanden",
+          fallbackLine1: "Diese App wurde noch nicht online synchronisiert.",
+          fallbackLine2: "Verbinde das Gerat mit dem Internet und klicke auf \"Jetzt aktualisieren\".",
+          loadError: "Fehler beim Laden"
+        },
+        en: {
+          pageTitle: "Vertical Garden Offline App",
+          frameTitle: "Vertical Garden Panel",
+          sourceLabel: "Source",
+          updatedLabel: "Updated",
+          refresh: "Refresh now",
+          collapseInfo: "Hide info",
+          expandInfo: "Show info",
+          initializing: "Initializing ...",
+          onlineDetectedLoading: "Online detected, loading latest version ...",
+          onlineUpdatedSource: "Internet (updated)",
+          currentVersionLoaded: "Latest version loaded.",
+          cachedOfflineSource: "Local storage (offline)",
+          offlineLoadedCached: "Offline: loaded saved version.",
+          noCacheSource: "No cache",
+          offlineNoLocalState: "Offline and no local snapshot stored yet.",
+          onlineFailedUsingLocal: "Online loading failed, using local snapshot ...",
+          onlineFailedNoCache: "Online loading failed and no cache is available.",
+          updateFailedKeepLocal: "Update failed. Local version remains active.",
+          internetBackCanRefresh: "Internet is back. You can refresh now.",
+          fallbackTitle: "No saved version available",
+          fallbackLine1: "This app has not been synchronized online yet.",
+          fallbackLine2: "Connect the device to the internet and click \"Refresh now\".",
+          loadError: "Load error"
+        }
+      };
+
+      function t(key) {
+        return i18n[language][key] || i18n.en[key] || key;
+      }
 
       const dot = document.getElementById("dot");
       const statusText = document.getElementById("statusText");
       const sourceText = document.getElementById("sourceText");
       const updatedAt = document.getElementById("updatedAt");
       const refreshBtn = document.getElementById("refreshBtn");
+      const toggleInfoBtn = document.getElementById("toggleInfoBtn");
+      const toggleInfoFab = document.getElementById("toggleInfoFab");
+      const statusBar = document.getElementById("statusBar");
+      const statusContent = document.getElementById("statusContent");
       const frame = document.getElementById("appFrame");
+      let infoCollapsed = false;
 
       function setNetworkState() {
         dot.classList.remove("online", "offline");
@@ -141,7 +310,7 @@
       }
 
       function setSource(source) {
-        sourceText.textContent = "Quelle: " + source;
+        sourceText.textContent = t("sourceLabel") + ": " + source;
       }
 
       function formatDate(iso) {
@@ -152,17 +321,34 @@
         if (Number.isNaN(date.getTime())) {
           return "-";
         }
-        return date.toLocaleString("de-DE");
+        return date.toLocaleString(userLocale);
       }
 
       function setUpdatedAt(iso) {
-        updatedAt.textContent = "Stand: " + formatDate(iso);
+        updatedAt.textContent = t("updatedLabel") + ": " + formatDate(iso);
+      }
+
+      function setInfoCollapsed(collapsed) {
+        infoCollapsed = collapsed;
+        statusBar.classList.toggle("hidden", collapsed);
+        statusContent.setAttribute("aria-hidden", String(collapsed));
+        const arrow = collapsed ? "▼" : "▲";
+        toggleInfoBtn.textContent = arrow;
+        toggleInfoFab.textContent = arrow;
+        toggleInfoBtn.setAttribute("title", collapsed ? t("expandInfo") : t("collapseInfo"));
+        toggleInfoBtn.setAttribute("aria-label", collapsed ? t("expandInfo") : t("collapseInfo"));
+        toggleInfoBtn.setAttribute("aria-expanded", String(!collapsed));
+        toggleInfoFab.setAttribute("title", collapsed ? t("expandInfo") : t("collapseInfo"));
+        toggleInfoFab.setAttribute("aria-label", collapsed ? t("expandInfo") : t("collapseInfo"));
+        toggleInfoFab.setAttribute("aria-expanded", String(!collapsed));
+        toggleInfoFab.classList.toggle("hidden", !collapsed);
+        localStorage.setItem(STORAGE_INFO_COLLAPSED, collapsed ? "1" : "0");
       }
 
       async function fetchText(url) {
         const response = await fetch(url, { cache: "no-store" });
         if (!response.ok) {
-          throw new Error("Fehler beim Laden: " + url + " (" + response.status + ")");
+          throw new Error(t("loadError") + ": " + url + " (" + response.status + ")");
         }
         return response.text();
       }
@@ -220,6 +406,26 @@
         }
       }
 
+      function hideRemoteScrollbars(doc) {
+        const style = doc.createElement("style");
+        style.textContent = `
+          html, body {
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+          }
+          html::-webkit-scrollbar,
+          body::-webkit-scrollbar,
+          *::-webkit-scrollbar {
+            width: 0 !important;
+            height: 0 !important;
+          }
+        `;
+        const head = doc.head || doc.getElementsByTagName("head")[0];
+        if (head) {
+          head.appendChild(style);
+        }
+      }
+
       async function buildSnapshot() {
         const html = await fetchText(REMOTE_HTML);
         const parser = new DOMParser();
@@ -228,6 +434,7 @@
         cleanForEmbedding(doc);
         await inlineStyles(doc);
         await inlineScripts(doc);
+        hideRemoteScrollbars(doc);
 
         return "<!doctype html>\n" + doc.documentElement.outerHTML;
       }
@@ -251,12 +458,12 @@
       }
 
       async function loadOnlineThenCache() {
-        setStatus("Online erkannt, lade aktuelle Version ...");
+        setStatus(t("onlineDetectedLoading"));
         const snapshot = await buildSnapshot();
         storeSnapshot(snapshot);
         render(snapshot);
-        setSource("Internet (aktualisiert)");
-        setStatus("Aktuelle Version geladen.");
+        setSource(t("onlineUpdatedSource"));
+        setStatus(t("currentVersionLoaded"));
       }
 
       function loadFromCacheOrFallback() {
@@ -265,16 +472,16 @@
 
         if (cached.html) {
           render(cached.html);
-          setSource("Lokaler Speicher (offline)");
-          setStatus("Offline: gespeicherte Version geladen.");
+          setSource(t("cachedOfflineSource"));
+          setStatus(t("offlineLoadedCached"));
           return true;
         }
 
         render(
-          "<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Offline</title><style>body{font-family:Segoe UI,Tahoma,sans-serif;margin:0;padding:24px;background:#f7faf7;color:#203321}h1{margin-top:0}p{line-height:1.5}</style></head><body><h1>Keine gespeicherte Version vorhanden</h1><p>Diese App wurde noch nicht online synchronisiert.</p><p>Verbinde das Gerät mit dem Internet und klicke auf \"Jetzt aktualisieren\".</p></body></html>"
+          "<!doctype html><html lang=\"" + language + "\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Offline</title><style>body{font-family:Segoe UI,Tahoma,sans-serif;margin:0;padding:24px;background:#f7faf7;color:#203321}h1{margin-top:0}p{line-height:1.5}</style></head><body><h1>" + t("fallbackTitle") + "</h1><p>" + t("fallbackLine1") + "</p><p>" + t("fallbackLine2") + "</p></body></html>"
         );
-        setSource("Kein Cache");
-        setStatus("Offline und noch kein lokaler Stand gespeichert.");
+        setSource(t("noCacheSource"));
+        setStatus(t("offlineNoLocalState"));
         return false;
       }
 
@@ -289,10 +496,10 @@
             await loadOnlineThenCache();
             return;
           } catch (_error) {
-            setStatus("Online fehlgeschlagen, nutze lokalen Stand ...");
+            setStatus(t("onlineFailedUsingLocal"));
             const hasCache = loadFromCacheOrFallback();
             if (!hasCache) {
-              setStatus("Online fehlgeschlagen und kein Cache vorhanden.");
+              setStatus(t("onlineFailedNoCache"));
             }
           }
         } else {
@@ -310,20 +517,38 @@
         try {
           await loadOnlineThenCache();
         } catch (_error) {
-          setStatus("Update fehlgeschlagen. Lokale Version bleibt aktiv.");
+          setStatus(t("updateFailedKeepLocal"));
           loadFromCacheOrFallback();
         }
       });
 
+      toggleInfoBtn.addEventListener("click", function () {
+        setInfoCollapsed(!infoCollapsed);
+      });
+      toggleInfoFab.addEventListener("click", function () {
+        setInfoCollapsed(!infoCollapsed);
+      });
+
       window.addEventListener("online", function () {
         setNetworkState();
-        setStatus("Internet wieder verfügbar. Du kannst jetzt aktualisieren.");
+        setStatus(t("internetBackCanRefresh"));
       });
 
       window.addEventListener("offline", function () {
         setNetworkState();
         loadFromCacheOrFallback();
       });
+
+      document.documentElement.lang = language;
+      document.title = t("pageTitle");
+      frame.setAttribute("title", t("frameTitle"));
+      refreshBtn.textContent = t("refresh");
+      setStatus(t("initializing"));
+      setSource("- ");
+      setUpdatedAt("");
+
+      const storedCollapse = localStorage.getItem(STORAGE_INFO_COLLAPSED) === "1";
+      setInfoCollapsed(storedCollapse);
 
       bootstrap();
     })();

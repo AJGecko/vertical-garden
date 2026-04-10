@@ -124,6 +124,75 @@
                     <button id="syncBtn" type="button">Zeit an Controller senden</button>
                 </div>
             </section>
+
+            <section class="section">
+                <div class="section-title">
+                    <h2 id="gardenTitle">Vertical Garden</h2>
+                </div>
+
+                <div class="garden-grid">
+                    <article class="garden-card">
+                        <div class="card-head">
+                            <h3 id="pumpTitle">Pumpe</h3>
+                            <span id="pumpStateBadge" class="state-badge off">Aus</span>
+                        </div>
+                        <div class="pump-visual-wrap">
+                            <div id="pumpFan" class="pump-fan" aria-hidden="true">✶</div>
+                        </div>
+                        <div class="row single">
+                            <button id="pumpToggleBtn" type="button">Pumpe umschalten</button>
+                        </div>
+                        <div class="row">
+                            <div>
+                                <label id="pumpDurationLabel" for="pumpDurationInput">Pumpenlaufzeit (ms)</label>
+                                <input id="pumpDurationInput" type="number" min="1000" max="120000" step="500" value="5000">
+                            </div>
+                            <div class="button-column">
+                                <button id="pumpDurationSaveBtn" class="secondary" type="button">Laufzeit speichern</button>
+                            </div>
+                        </div>
+                    </article>
+
+                    <article class="garden-card">
+                        <div class="card-head">
+                            <h3 id="lightTitle">RGB Licht</h3>
+                            <label class="pill-toggle" for="lightEnabledToggle">
+                                <input id="lightEnabledToggle" type="checkbox">
+                                <span id="lightEnabledText">Aus</span>
+                            </label>
+                        </div>
+
+                        <div class="rgb-grid">
+                            <label for="lightR">R <input id="lightR" type="range" min="0" max="255" value="255"></label>
+                            <label for="lightG">G <input id="lightG" type="range" min="0" max="255" value="64"></label>
+                            <label for="lightB">B <input id="lightB" type="range" min="0" max="255" value="12"></label>
+                        </div>
+
+                        <div class="light-preview-row">
+                            <span id="lightPreview" class="light-preview"></span>
+                            <span id="lightValueText" class="light-values">R255 G64 B12</span>
+                        </div>
+
+                        <div class="row single">
+                            <button id="lightApplyBtn" type="button">RGB anwenden</button>
+                        </div>
+                    </article>
+                </div>
+
+                <article class="garden-card sensor-card">
+                    <div class="card-head">
+                        <h3 id="sensorTitle">Sensor</h3>
+                        <button id="sensorRefreshBtn" class="secondary tiny-button" type="button">Aktualisieren</button>
+                    </div>
+                    <div class="sensor-values">
+                        <div><strong id="moisturePercent">-</strong><span id="moisturePercentLabel">Feuchtigkeit</span></div>
+                        <div><strong id="moistureRaw">-</strong><span id="moistureRawLabel">Raw Wert</span></div>
+                    </div>
+                    <div class="sensor-bar">
+                        <div id="moistureBar" class="sensor-bar-fill" style="width:0%"></div>
+                    </div>
+                </article>
+            </section>
         </main>
     </section>
 

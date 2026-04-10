@@ -2,6 +2,7 @@
 #include <ESP8266WebServer.h>
 #include <DNSServer.h>
 #include <Adafruit_NeoPixel.h>
+#include <time.h>
 
 const char* AP_PASSWORD = "vertical123";
 const byte DNS_PORT = 53;
@@ -54,8 +55,9 @@ struct BackendState {
   int liveIntervalMs = 500;
   unsigned long lastUpdateMs = 0;
   bool localClockValid = false;
-  int localClockBaseSecondsOfDay = 0;
+  unsigned long localClockBaseEpochSec = 0;
   unsigned long localClockCapturedMs = 0;
+  unsigned long localClockLastWriteMs = 0;
 };
 
 BackendState state;
@@ -322,23 +324,41 @@ void refreshSensorValues() {
   deviceState.lastMoistureSampleMs = millis();
 }
 
-bool parseTimeOfDayFromIso(const String& value, int& hour, int& minute, int& second) {
-  int tPos = value.lastIndexOf('T');
-  if (tPos < 0 || tPos + 8 >= (int)value.length()) {
+int monthNameToNumber(const String& m) {
+  if (m == "Jan") return 1;
+  if (m == "Feb") return 2;
+  if (m == "Mar") return 3;
+  if (m == "Apr") return 4;
+  if (m == "May") return 5;
+  if (m == "Jun") return 6;
+  if (m == "Jul") return 7;
+  if (m == "Aug") return 8;
+  if (m == "Sep") return 9;
+  if (m == "Oct") return 10;
+  if (m == "Nov") return 11;
+  if (m == "Dec") return 12;
+  return 0;
+}
+
+bool parseIsoDateTime(const String& value, int& year, int& month, int& day, int& hour, int& minute, int& second) {
+  if (value.length() < 19) {
     return false;
   }
 
-  String hh = value.substring(tPos + 1, tPos + 3);
-  String mm = value.substring(tPos + 4, tPos + 6);
-  String ss = value.substring(tPos + 7, tPos + 9);
-
-  if (!isDigit(hh[0]) || !isDigit(hh[1]) || !isDigit(mm[0]) || !isDigit(mm[1]) || !isDigit(ss[0]) || !isDigit(ss[1])) {
+  if (value[4] != '-' || value[7] != '-' || value[10] != 'T' || value[13] != ':' || value[16] != ':') {
     return false;
   }
 
-  hour = hh.toInt();
-  minute = mm.toInt();
-  second = ss.toInt();
+  year = value.substring(0, 4).toInt();
+  month = value.substring(5, 7).toInt();
+  day = value.substring(8, 10).toInt();
+  hour = value.substring(11, 13).toInt();
+  minute = value.substring(14, 16).toInt();
+  second = value.substring(17, 19).toInt();
+
+  if (year < 1970 || month < 1 || month > 12 || day < 1 || day > 31) {
+    return false;
+  }
 
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) {
     return false;
@@ -347,18 +367,86 @@ bool parseTimeOfDayFromIso(const String& value, int& hour, int& minute, int& sec
   return true;
 }
 
+String buildIsoFromCompileTime() {
+  String d = String(__DATE__); // e.g. "Apr 10 2026"
+  String t = String(__TIME__); // e.g. "13:37:42"
+
+  String monName = d.substring(0, 3);
+  int month = monthNameToNumber(monName);
+  int day = d.substring(4, 6).toInt();
+  int year = d.substring(7, 11).toInt();
+
+  if (month <= 0 || year < 1970 || day < 1 || day > 31) {
+    return String("2026-01-01T00:00:00");
+  }
+
+  char buf[20];
+  snprintf(buf, sizeof(buf), "%04d-%02d-%02dT%s", year, month, day, t.c_str());
+  return String(buf);
+}
+
 void syncLocalClockFromState() {
+  int year = 0;
+  int month = 0;
+  int day = 0;
   int hour = 0;
   int minute = 0;
   int second = 0;
-  if (!parseTimeOfDayFromIso(state.localTime, hour, minute, second)) {
+  if (!parseIsoDateTime(state.localTime, year, month, day, hour, minute, second)) {
     state.localClockValid = false;
     return;
   }
 
-  state.localClockBaseSecondsOfDay = (hour * 3600) + (minute * 60) + second;
+  tm tmValue;
+  memset(&tmValue, 0, sizeof(tmValue));
+  tmValue.tm_year = year - 1900;
+  tmValue.tm_mon = month - 1;
+  tmValue.tm_mday = day;
+  tmValue.tm_hour = hour;
+  tmValue.tm_min = minute;
+  tmValue.tm_sec = second;
+
+  time_t epoch = mktime(&tmValue);
+  if (epoch < 0) {
+    state.localClockValid = false;
+    return;
+  }
+
+  state.localClockBaseEpochSec = (unsigned long)epoch;
   state.localClockCapturedMs = millis();
+  state.localClockLastWriteMs = millis();
   state.localClockValid = true;
+}
+
+void updateLocalTimeFromClock() {
+  if (!state.localClockValid) {
+    return;
+  }
+
+  unsigned long nowMs = millis();
+  if (nowMs - state.localClockLastWriteMs < 1000UL) {
+    return;
+  }
+
+  unsigned long elapsedSec = (nowMs - state.localClockCapturedMs) / 1000UL;
+  unsigned long nowEpochSec = state.localClockBaseEpochSec + elapsedSec;
+
+  time_t tt = (time_t)nowEpochSec;
+  tm tmOut;
+  if (!gmtime_r(&tt, &tmOut)) {
+    return;
+  }
+
+  char buf[20];
+  snprintf(buf, sizeof(buf), "%04d-%02d-%02dT%02d:%02d:%02d",
+      tmOut.tm_year + 1900,
+      tmOut.tm_mon + 1,
+      tmOut.tm_mday,
+      tmOut.tm_hour,
+      tmOut.tm_min,
+      tmOut.tm_sec);
+  state.localTime = String(buf);
+  state.localClockLastWriteMs = nowMs;
 }
 
 int getCurrentLocalMinuteOfDay() {
@@ -367,9 +455,8 @@ int getCurrentLocalMinuteOfDay() {
   }
 
   unsigned long elapsedSec = (millis() - state.localClockCapturedMs) / 1000UL;
-  unsigned long secondsToday = (unsigned long)state.localClockBaseSecondsOfDay + elapsedSec;
-  int wrapped = (int)(secondsToday % 86400UL);
-  return wrapped / 60;
+  unsigned long nowEpochSec = state.localClockBaseEpochSec + elapsedSec;
+  return (int)((nowEpochSec % 86400UL) / 60UL);
 }
 
 bool isMinuteInScheduleWindow(int currentMinute, int startMinute, int endMinute) {
@@ -575,6 +662,7 @@ void handleButtonTestActions() {
 }
 
 String buildTimeJson() {
+  updateLocalTimeFromClock();
   String j = "{";
   j += "\"timezone\":\"" + jsonEscape(state.timezone) + "\",";
   j += "\"mode\":\"" + jsonEscape(state.mode) + "\",";
@@ -584,6 +672,7 @@ String buildTimeJson() {
 }
 
 String buildStatusJson() {
+  updateLocalTimeFromClock();
   refreshSensorValues();
   unsigned long remainingMs = getPumpRemainingMs();
 
@@ -967,6 +1056,7 @@ void setup() {
   pinMode(PIN_BTN_LESS, INPUT_PULLUP);
   pinMode(PIN_BTN_ENTER, INPUT_PULLUP);
 
+  state.localTime = buildIsoFromCompileTime();
   refreshSensorValues();
   syncLocalClockFromState();
 

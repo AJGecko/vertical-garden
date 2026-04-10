@@ -410,6 +410,12 @@ function formatDurationMs(ms) {
     return `${m}m ${String(s).padStart(2, "0")}s`;
 }
 
+function setIfNotFocused(inputEl, value) {
+    if (!inputEl) return;
+    if (document.activeElement === inputEl) return;
+    inputEl.value = value;
+}
+
 function minutesToTimeInputValue(totalMinutes) {
     const n = Number(totalMinutes);
     if (!Number.isFinite(n)) return "00:00";
@@ -458,7 +464,7 @@ function renderGardenData(data) {
     pumpFanEl.classList.toggle("on", pumpOn);
 
     if (Number.isFinite(Number(data.pumpDurationMs))) {
-        pumpDurationInputEl.value = String(data.pumpDurationMs);
+        setIfNotFocused(pumpDurationInputEl, String(data.pumpDurationMs));
     }
     if (typeof data.manualPumpControlEnabled === "boolean") {
         manualPumpControlToggleEl.checked = data.manualPumpControlEnabled;
@@ -467,13 +473,13 @@ function renderGardenData(data) {
         autoPumpEnabledToggleEl.checked = data.autoPumpEnabled;
     }
     if (Number.isFinite(Number(data.moistureThresholdPercent))) {
-        moistureThresholdInputEl.value = String(data.moistureThresholdPercent);
+        setIfNotFocused(moistureThresholdInputEl, String(data.moistureThresholdPercent));
     }
     if (Number.isFinite(Number(data.autoPumpDurationMs))) {
-        autoPumpDurationInputEl.value = String(data.autoPumpDurationMs);
+        setIfNotFocused(autoPumpDurationInputEl, String(data.autoPumpDurationMs));
     }
     if (Number.isFinite(Number(data.autoPumpCooldownMs))) {
-        autoPumpCooldownInputEl.value = String(data.autoPumpCooldownMs);
+        setIfNotFocused(autoPumpCooldownInputEl, String(data.autoPumpCooldownMs));
     }
     updatePumpModeLabels();
 
@@ -481,23 +487,23 @@ function renderGardenData(data) {
     lightEnabledToggleEl.checked = ledOn;
     lightEnabledTextEl.textContent = ledOn ? "An" : "Aus";
 
-    if (Number.isFinite(Number(data.ledStripR))) lightREl.value = String(data.ledStripR);
-    if (Number.isFinite(Number(data.ledStripG))) lightGEl.value = String(data.ledStripG);
-    if (Number.isFinite(Number(data.ledStripB))) lightBEl.value = String(data.ledStripB);
+    if (Number.isFinite(Number(data.ledStripR))) setIfNotFocused(lightREl, String(data.ledStripR));
+    if (Number.isFinite(Number(data.ledStripG))) setIfNotFocused(lightGEl, String(data.ledStripG));
+    if (Number.isFinite(Number(data.ledStripB))) setIfNotFocused(lightBEl, String(data.ledStripB));
     if (typeof data.ledEffect === "string") {
         lightEffectSelectEl.value = data.ledEffect;
     }
     if (Number.isFinite(Number(data.ledEffectSpeedMs))) {
-        lightEffectSpeedInputEl.value = String(data.ledEffectSpeedMs);
+        setIfNotFocused(lightEffectSpeedInputEl, String(data.ledEffectSpeedMs));
     }
     if (typeof data.lightScheduleEnabled === "boolean") {
         lightScheduleEnabledToggleEl.checked = data.lightScheduleEnabled;
     }
     if (Number.isFinite(Number(data.lightOnMinute))) {
-        lightOnTimeInputEl.value = minutesToTimeInputValue(data.lightOnMinute);
+        setIfNotFocused(lightOnTimeInputEl, minutesToTimeInputValue(data.lightOnMinute));
     }
     if (Number.isFinite(Number(data.lightOffMinute))) {
-        lightOffTimeInputEl.value = minutesToTimeInputValue(data.lightOffMinute);
+        setIfNotFocused(lightOffTimeInputEl, minutesToTimeInputValue(data.lightOffMinute));
     }
     updateLightScheduleLabel();
     updateLightPreview();
@@ -548,28 +554,28 @@ function renderGardenSettingsData(data) {
         manualPumpControlToggleEl.checked = data.manualPumpControlEnabled;
     }
     if (Number.isFinite(Number(data.moistureThresholdPercent))) {
-        moistureThresholdInputEl.value = String(data.moistureThresholdPercent);
+        setIfNotFocused(moistureThresholdInputEl, String(data.moistureThresholdPercent));
     }
     if (Number.isFinite(Number(data.autoPumpDurationMs))) {
-        autoPumpDurationInputEl.value = String(data.autoPumpDurationMs);
+        setIfNotFocused(autoPumpDurationInputEl, String(data.autoPumpDurationMs));
     }
     if (Number.isFinite(Number(data.autoPumpCooldownMs))) {
-        autoPumpCooldownInputEl.value = String(data.autoPumpCooldownMs);
+        setIfNotFocused(autoPumpCooldownInputEl, String(data.autoPumpCooldownMs));
     }
     if (typeof data.lightScheduleEnabled === "boolean") {
         lightScheduleEnabledToggleEl.checked = data.lightScheduleEnabled;
     }
     if (Number.isFinite(Number(data.lightOnMinute))) {
-        lightOnTimeInputEl.value = minutesToTimeInputValue(data.lightOnMinute);
+        setIfNotFocused(lightOnTimeInputEl, minutesToTimeInputValue(data.lightOnMinute));
     }
     if (Number.isFinite(Number(data.lightOffMinute))) {
-        lightOffTimeInputEl.value = minutesToTimeInputValue(data.lightOffMinute);
+        setIfNotFocused(lightOffTimeInputEl, minutesToTimeInputValue(data.lightOffMinute));
     }
     if (typeof data.ledEffect === "string") {
         lightEffectSelectEl.value = data.ledEffect;
     }
     if (Number.isFinite(Number(data.ledEffectSpeedMs))) {
-        lightEffectSpeedInputEl.value = String(data.ledEffectSpeedMs);
+        setIfNotFocused(lightEffectSpeedInputEl, String(data.ledEffectSpeedMs));
     }
 
     updatePumpModeLabels();

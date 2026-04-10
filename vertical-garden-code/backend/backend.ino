@@ -32,7 +32,9 @@ const int PUMP_DURATION_STEP_MS = 1000;
 const int PUMP_DURATION_MIN_MS = 1000;
 const int PUMP_DURATION_MAX_MS = 120000;
 const uint32_t SENSOR_SAMPLE_INTERVAL_MS = 1000;
-const uint32_t AUTO_PUMP_COOLDOWN_MS = 15000;
+const int AUTO_PUMP_COOLDOWN_MIN_MS = 1000;
+const int AUTO_PUMP_COOLDOWN_MAX_MS = 600000;
+const int AUTO_PUMP_COOLDOWN_DEFAULT_MS = 15000;
 
 const int LED_EFFECT_STATIC = 0;
 const int LED_EFFECT_BLINK = 1;
@@ -73,6 +75,7 @@ struct DeviceControlState {
   bool manualPumpControlEnabled = false;
   int moistureThresholdPercent = 35;
   int autoPumpDurationMs = 5000;
+  int autoPumpCooldownMs = AUTO_PUMP_COOLDOWN_DEFAULT_MS;
   unsigned long pumpAutoCooldownUntilMs = 0;
   unsigned long lastMoistureSampleMs = 0;
 
@@ -420,13 +423,15 @@ void updateAutoPumpControl() {
 
   if (deviceState.moisturePercent < deviceState.moistureThresholdPercent) {
     runPumpForMsNoPreset(deviceState.autoPumpDurationMs);
-    deviceState.pumpAutoCooldownUntilMs = millis() + AUTO_PUMP_COOLDOWN_MS;
+    deviceState.pumpAutoCooldownUntilMs = millis() + (unsigned long)deviceState.autoPumpCooldownMs;
     Serial.print("[AUTO] Moisture below threshold, pump started. moisture=");
     Serial.print(deviceState.moisturePercent);
     Serial.print(" threshold=");
     Serial.print(deviceState.moistureThresholdPercent);
     Serial.print(" durationMs=");
-    Serial.println(deviceState.autoPumpDurationMs);
+    Serial.print(deviceState.autoPumpDurationMs);
+    Serial.print(" cooldownMs=");
+    Serial.println(deviceState.autoPumpCooldownMs);
   }
 }
 
@@ -451,7 +456,8 @@ String buildControlJson() {
   j += "\"autoEnabled\":" + String(deviceState.autoPumpEnabled ? "true" : "false") + ",";
   j += "\"manualEnabled\":" + String(deviceState.manualPumpControlEnabled ? "true" : "false") + ",";
   j += "\"thresholdPercent\":" + String(deviceState.moistureThresholdPercent) + ",";
-  j += "\"autoDurationMs\":" + String(deviceState.autoPumpDurationMs);
+  j += "\"autoDurationMs\":" + String(deviceState.autoPumpDurationMs) + ",";
+  j += "\"autoCooldownMs\":" + String(deviceState.autoPumpCooldownMs);
   j += "},";
   j += "\"moisture\":{";
   j += "\"raw\":" + String(deviceState.moistureRaw) + ",";
@@ -594,6 +600,7 @@ String buildStatusJson() {
   j += "\"manualPumpControlEnabled\":" + String(deviceState.manualPumpControlEnabled ? "true" : "false") + ",";
   j += "\"moistureThresholdPercent\":" + String(deviceState.moistureThresholdPercent) + ",";
   j += "\"autoPumpDurationMs\":" + String(deviceState.autoPumpDurationMs) + ",";
+  j += "\"autoPumpCooldownMs\":" + String(deviceState.autoPumpCooldownMs) + ",";
   j += "\"moistureRaw\":" + String(deviceState.moistureRaw) + ",";
   j += "\"moisturePercent\":" + String(deviceState.moisturePercent) + ",";
   j += "\"ledStripOn\":" + String(deviceState.ledStripOn ? "true" : "false") + ",";
@@ -732,6 +739,7 @@ void handleGetGardenSettings() {
   j += "\"manualPumpControlEnabled\":" + String(deviceState.manualPumpControlEnabled ? "true" : "false") + ",";
   j += "\"moistureThresholdPercent\":" + String(deviceState.moistureThresholdPercent) + ",";
   j += "\"autoPumpDurationMs\":" + String(deviceState.autoPumpDurationMs) + ",";
+  j += "\"autoPumpCooldownMs\":" + String(deviceState.autoPumpCooldownMs) + ",";
   j += "\"ledEffect\":\"" + String(ledEffectModeToString(deviceState.ledEffectMode)) + "\",";
   j += "\"ledEffectSpeedMs\":" + String(deviceState.ledEffectSpeedMs) + ",";
   j += "\"lightScheduleEnabled\":" + String(deviceState.lightScheduleEnabled ? "true" : "false") + ",";
@@ -748,11 +756,12 @@ void handlePostGardenSettings() {
   deviceState.autoPumpEnabled = !deviceState.manualPumpControlEnabled;
   deviceState.moistureThresholdPercent = clampInt(extractJsonInt(body, "moistureThresholdPercent", deviceState.moistureThresholdPercent), 0, 100);
   deviceState.autoPumpDurationMs = clampInt(extractJsonInt(body, "autoPumpDurationMs", deviceState.autoPumpDurationMs), PUMP_DURATION_MIN_MS, PUMP_DURATION_MAX_MS);
+  deviceState.autoPumpCooldownMs = clampInt(extractJsonInt(body, "autoPumpCooldownMs", deviceState.autoPumpCooldownMs), AUTO_PUMP_COOLDOWN_MIN_MS, AUTO_PUMP_COOLDOWN_MAX_MS);
   deviceState.lightScheduleEnabled = extractJsonBool(body, "lightScheduleEnabled", deviceState.lightScheduleEnabled);
   deviceState.lightOnMinute = clampInt(extractJsonInt(body, "lightOnMinute", deviceState.lightOnMinute), 0, 1439);
   deviceState.lightOffMinute = clampInt(extractJsonInt(body, "lightOffMinute", deviceState.lightOffMinute), 0, 1439);
   state.lastUpdateMs = millis();
-  sendJson(200, "{\"ok\":true,\"message\":\"ok\",\"autoPumpEnabled\":" + String(deviceState.autoPumpEnabled ? "true" : "false") + ",\"manualPumpControlEnabled\":" + String(deviceState.manualPumpControlEnabled ? "true" : "false") + ",\"moistureThresholdPercent\":" + String(deviceState.moistureThresholdPercent) + ",\"autoPumpDurationMs\":" + String(deviceState.autoPumpDurationMs) + ",\"lightScheduleEnabled\":" + String(deviceState.lightScheduleEnabled ? "true" : "false") + ",\"lightOnMinute\":" + String(deviceState.lightOnMinute) + ",\"lightOffMinute\":" + String(deviceState.lightOffMinute) + "}");
+  sendJson(200, "{\"ok\":true,\"message\":\"ok\",\"autoPumpEnabled\":" + String(deviceState.autoPumpEnabled ? "true" : "false") + ",\"manualPumpControlEnabled\":" + String(deviceState.manualPumpControlEnabled ? "true" : "false") + ",\"moistureThresholdPercent\":" + String(deviceState.moistureThresholdPercent) + ",\"autoPumpDurationMs\":" + String(deviceState.autoPumpDurationMs) + ",\"autoPumpCooldownMs\":" + String(deviceState.autoPumpCooldownMs) + ",\"lightScheduleEnabled\":" + String(deviceState.lightScheduleEnabled ? "true" : "false") + ",\"lightOnMinute\":" + String(deviceState.lightOnMinute) + ",\"lightOffMinute\":" + String(deviceState.lightOffMinute) + "}");
 }
 
 void handlePostPump() {
@@ -796,6 +805,8 @@ void handlePostLed() {
   int g = clampInt(extractJsonInt(body, "g", deviceState.ledG), 0, 255);
   int b = clampInt(extractJsonInt(body, "b", deviceState.ledB), 0, 255);
 
+  // Manual panel action should remain controllable; disable schedule override.
+  deviceState.lightScheduleEnabled = false;
   setLedEffectMode(LED_EFFECT_STATIC, deviceState.ledEffectSpeedMs);
   setLedStripState(on, r, g, b);
   state.lastUpdateMs = millis();
@@ -818,6 +829,8 @@ void handlePostLedEffect() {
   int g = clampInt(extractJsonInt(body, "g", deviceState.ledG), 0, 255);
   int b = clampInt(extractJsonInt(body, "b", deviceState.ledB), 0, 255);
 
+  // Manual panel action should remain controllable; disable schedule override.
+  deviceState.lightScheduleEnabled = false;
   setLedStripState(on, r, g, b);
   setLedEffectMode(parsedMode, speedMs);
   updateLedEffects();

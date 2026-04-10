@@ -63,6 +63,7 @@ const ctrlUpdatedEl = document.getElementById("ctrlUpdated");
 const statusPumpEl = document.getElementById("statusPump");
 const statusPumpDurationEl = document.getElementById("statusPumpDuration");
 const statusPumpModeEl = document.getElementById("statusPumpMode");
+const statusPumpCooldownEl = document.getElementById("statusPumpCooldown");
 const statusMoistureEl = document.getElementById("statusMoisture");
 const statusLightEl = document.getElementById("statusLight");
 const statusLightEffectEl = document.getElementById("statusLightEffect");
@@ -91,6 +92,7 @@ const autoPumpEnabledToggleEl = document.getElementById("autoPumpEnabledToggle")
 const autoPumpEnabledTextEl = document.getElementById("autoPumpEnabledText");
 const moistureThresholdInputEl = document.getElementById("moistureThresholdInput");
 const autoPumpDurationInputEl = document.getElementById("autoPumpDurationInput");
+const autoPumpCooldownInputEl = document.getElementById("autoPumpCooldownInput");
 const gardenSettingsSaveBtnEl = document.getElementById("gardenSettingsSaveBtn");
 const lightScheduleEnabledToggleEl = document.getElementById("lightScheduleEnabledToggle");
 const lightScheduleEnabledTextEl = document.getElementById("lightScheduleEnabledText");
@@ -470,6 +472,9 @@ function renderGardenData(data) {
     if (Number.isFinite(Number(data.autoPumpDurationMs))) {
         autoPumpDurationInputEl.value = String(data.autoPumpDurationMs);
     }
+    if (Number.isFinite(Number(data.autoPumpCooldownMs))) {
+        autoPumpCooldownInputEl.value = String(data.autoPumpCooldownMs);
+    }
     updatePumpModeLabels();
 
     const ledOn = Boolean(data.ledStripOn);
@@ -512,6 +517,9 @@ function renderGardenData(data) {
     const autoEnabled = !manualEnabled;
     statusPumpModeEl.textContent = `${manualEnabled ? "Manuell an" : "Manuell aus"} | ${autoEnabled ? "Auto an" : "Auto aus"}`;
 
+    const cooldownMs = Number.isFinite(Number(data.autoPumpCooldownMs)) ? Number(data.autoPumpCooldownMs) : 0;
+    statusPumpCooldownEl.textContent = cooldownMs > 0 ? formatDurationMs(cooldownMs) : "-";
+
     const threshold = Number.isFinite(Number(data.moistureThresholdPercent)) ? Number(data.moistureThresholdPercent) : null;
     statusMoistureEl.textContent = threshold === null ? `${percent}% (${raw})` : `${percent}% (${raw}) | Schwellwert ${threshold}%`;
 
@@ -544,6 +552,9 @@ function renderGardenSettingsData(data) {
     }
     if (Number.isFinite(Number(data.autoPumpDurationMs))) {
         autoPumpDurationInputEl.value = String(data.autoPumpDurationMs);
+    }
+    if (Number.isFinite(Number(data.autoPumpCooldownMs))) {
+        autoPumpCooldownInputEl.value = String(data.autoPumpCooldownMs);
     }
     if (typeof data.lightScheduleEnabled === "boolean") {
         lightScheduleEnabledToggleEl.checked = data.lightScheduleEnabled;
@@ -594,6 +605,7 @@ async function saveGardenSettings() {
             autoPumpEnabled: !manualPumpControlToggleEl.checked,
             moistureThresholdPercent: Number(moistureThresholdInputEl.value || 35),
             autoPumpDurationMs: Number(autoPumpDurationInputEl.value || 5000),
+            autoPumpCooldownMs: Number(autoPumpCooldownInputEl.value || 15000),
             lightScheduleEnabled: lightScheduleEnabledToggleEl.checked,
             lightOnMinute: timeInputValueToMinutes(lightOnTimeInputEl.value, 18 * 60),
             lightOffMinute: timeInputValueToMinutes(lightOffTimeInputEl.value, 23 * 60)
@@ -898,17 +910,7 @@ async function savePumpDuration() {
     pumpDurationSaveBtnEl.disabled = true;
     try {
         const pumpDurationMs = Number(pumpDurationInputEl.value || 5000);
-        const autoPumpDurationMs = Number(autoPumpDurationInputEl.value || pumpDurationMs);
         await postJson("/api/pump-duration", { pumpDurationMs });
-        await postJson("/api/garden/settings", {
-            manualPumpControlEnabled: manualPumpControlToggleEl.checked,
-            autoPumpEnabled: !manualPumpControlToggleEl.checked,
-            moistureThresholdPercent: Number(moistureThresholdInputEl.value || 35),
-            autoPumpDurationMs,
-            lightScheduleEnabled: lightScheduleEnabledToggleEl.checked,
-            lightOnMinute: timeInputValueToMinutes(lightOnTimeInputEl.value, 18 * 60),
-            lightOffMinute: timeInputValueToMinutes(lightOffTimeInputEl.value, 23 * 60)
-        });
         await fetchControllerData(false);
         setStatus("Pumpenlaufzeit gespeichert.", null);
     } catch (error) {
@@ -1000,6 +1002,7 @@ function resetSettings() {
     statusPumpEl.textContent = "-";
     statusPumpDurationEl.textContent = "-";
     statusPumpModeEl.textContent = "-";
+    statusPumpCooldownEl.textContent = "-";
     statusMoistureEl.textContent = "-";
     statusLightEl.textContent = "-";
     statusLightEffectEl.textContent = "-";

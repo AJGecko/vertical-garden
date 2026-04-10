@@ -60,6 +60,13 @@ const ctrlTimeEl = document.getElementById("ctrlTime");
 const ctrlTimezoneEl = document.getElementById("ctrlTimezone");
 const ctrlLocalEl = document.getElementById("ctrlLocal");
 const ctrlUpdatedEl = document.getElementById("ctrlUpdated");
+const statusPumpEl = document.getElementById("statusPump");
+const statusPumpDurationEl = document.getElementById("statusPumpDuration");
+const statusPumpModeEl = document.getElementById("statusPumpMode");
+const statusMoistureEl = document.getElementById("statusMoisture");
+const statusLightEl = document.getElementById("statusLight");
+const statusLightEffectEl = document.getElementById("statusLightEffect");
+const statusLightScheduleEl = document.getElementById("statusLightSchedule");
 const pumpStateBadgeEl = document.getElementById("pumpStateBadge");
 const pumpFanEl = document.getElementById("pumpFan");
 const pumpToggleBtnEl = document.getElementById("pumpToggleBtn");
@@ -73,6 +80,21 @@ const lightBEl = document.getElementById("lightB");
 const lightPreviewEl = document.getElementById("lightPreview");
 const lightValueTextEl = document.getElementById("lightValueText");
 const lightApplyBtnEl = document.getElementById("lightApplyBtn");
+const lightEffectSelectEl = document.getElementById("lightEffectSelect");
+const lightEffectSpeedInputEl = document.getElementById("lightEffectSpeedInput");
+const lightEffectApplyBtnEl = document.getElementById("lightEffectApplyBtn");
+const manualPumpControlToggleEl = document.getElementById("manualPumpControlToggle");
+const manualPumpControlTextEl = document.getElementById("manualPumpControlText");
+const autoPumpEnabledToggleEl = document.getElementById("autoPumpEnabledToggle");
+const autoPumpEnabledTextEl = document.getElementById("autoPumpEnabledText");
+const moistureThresholdInputEl = document.getElementById("moistureThresholdInput");
+const autoPumpDurationInputEl = document.getElementById("autoPumpDurationInput");
+const gardenSettingsSaveBtnEl = document.getElementById("gardenSettingsSaveBtn");
+const lightScheduleEnabledToggleEl = document.getElementById("lightScheduleEnabledToggle");
+const lightScheduleEnabledTextEl = document.getElementById("lightScheduleEnabledText");
+const lightOnTimeInputEl = document.getElementById("lightOnTimeInput");
+const lightOffTimeInputEl = document.getElementById("lightOffTimeInput");
+const lightScheduleSaveBtnEl = document.getElementById("lightScheduleSaveBtn");
 const sensorRefreshBtnEl = document.getElementById("sensorRefreshBtn");
 const moisturePercentEl = document.getElementById("moisturePercent");
 const moistureRawEl = document.getElementById("moistureRaw");
@@ -375,6 +397,48 @@ function getLightValues() {
     };
 }
 
+function formatDurationMs(ms) {
+    const n = Number(ms);
+    if (!Number.isFinite(n) || n < 0) return "-";
+    const totalSec = Math.floor(n / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m}m ${String(s).padStart(2, "0")}s`;
+}
+
+function minutesToTimeInputValue(totalMinutes) {
+    const n = Number(totalMinutes);
+    if (!Number.isFinite(n)) return "00:00";
+    const wrapped = ((Math.floor(n) % 1440) + 1440) % 1440;
+    const h = String(Math.floor(wrapped / 60)).padStart(2, "0");
+    const m = String(wrapped % 60).padStart(2, "0");
+    return `${h}:${m}`;
+}
+
+function timeInputValueToMinutes(value, fallbackMinutes) {
+    if (!value || !/^\d{2}:\d{2}$/.test(value)) {
+        return fallbackMinutes;
+    }
+    const h = Number(value.slice(0, 2));
+    const m = Number(value.slice(3, 5));
+    if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) {
+        return fallbackMinutes;
+    }
+    return h * 60 + m;
+}
+
+function updatePumpModeLabels() {
+    const manualOn = manualPumpControlToggleEl.checked;
+    const autoOn = autoPumpEnabledToggleEl.checked;
+    manualPumpControlTextEl.textContent = manualOn ? "Manuelle Steuerung aktiv" : "Manuelle Steuerung aus";
+    autoPumpEnabledTextEl.textContent = autoOn ? "Automatik an" : "Automatik aus";
+    pumpToggleBtnEl.disabled = !manualOn;
+}
+
+function updateLightScheduleLabel() {
+    lightScheduleEnabledTextEl.textContent = lightScheduleEnabledToggleEl.checked ? "Licht-Zeitplan an" : "Licht-Zeitplan aus";
+}
+
 function updateLightPreview() {
     const { r, g, b } = getLightValues();
     lightPreviewEl.style.background = `rgb(${r}, ${g}, ${b})`;
@@ -390,6 +454,19 @@ function renderGardenData(data) {
     if (Number.isFinite(Number(data.pumpDurationMs))) {
         pumpDurationInputEl.value = String(data.pumpDurationMs);
     }
+    if (typeof data.manualPumpControlEnabled === "boolean") {
+        manualPumpControlToggleEl.checked = data.manualPumpControlEnabled;
+    }
+    if (typeof data.autoPumpEnabled === "boolean") {
+        autoPumpEnabledToggleEl.checked = data.autoPumpEnabled;
+    }
+    if (Number.isFinite(Number(data.moistureThresholdPercent))) {
+        moistureThresholdInputEl.value = String(data.moistureThresholdPercent);
+    }
+    if (Number.isFinite(Number(data.autoPumpDurationMs))) {
+        autoPumpDurationInputEl.value = String(data.autoPumpDurationMs);
+    }
+    updatePumpModeLabels();
 
     const ledOn = Boolean(data.ledStripOn);
     lightEnabledToggleEl.checked = ledOn;
@@ -398,6 +475,22 @@ function renderGardenData(data) {
     if (Number.isFinite(Number(data.ledStripR))) lightREl.value = String(data.ledStripR);
     if (Number.isFinite(Number(data.ledStripG))) lightGEl.value = String(data.ledStripG);
     if (Number.isFinite(Number(data.ledStripB))) lightBEl.value = String(data.ledStripB);
+    if (typeof data.ledEffect === "string") {
+        lightEffectSelectEl.value = data.ledEffect;
+    }
+    if (Number.isFinite(Number(data.ledEffectSpeedMs))) {
+        lightEffectSpeedInputEl.value = String(data.ledEffectSpeedMs);
+    }
+    if (typeof data.lightScheduleEnabled === "boolean") {
+        lightScheduleEnabledToggleEl.checked = data.lightScheduleEnabled;
+    }
+    if (Number.isFinite(Number(data.lightOnMinute))) {
+        lightOnTimeInputEl.value = minutesToTimeInputValue(data.lightOnMinute);
+    }
+    if (Number.isFinite(Number(data.lightOffMinute))) {
+        lightOffTimeInputEl.value = minutesToTimeInputValue(data.lightOffMinute);
+    }
+    updateLightScheduleLabel();
     updateLightPreview();
 
     const percent = Number.isFinite(Number(data.moisturePercent)) ? Number(data.moisturePercent) : 0;
@@ -405,6 +498,106 @@ function renderGardenData(data) {
     moisturePercentEl.textContent = `${percent}%`;
     moistureRawEl.textContent = String(raw);
     moistureBarEl.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+
+    const remainingMs = Number.isFinite(Number(data.pumpRemainingMs)) ? Number(data.pumpRemainingMs) : 0;
+    const pumpDurationMs = Number.isFinite(Number(data.pumpDurationMs)) ? Number(data.pumpDurationMs) : 0;
+    statusPumpEl.textContent = pumpOn ? "An" : "Aus";
+    statusPumpDurationEl.textContent = `${formatDurationMs(pumpDurationMs)} / ${formatDurationMs(remainingMs)}`;
+
+    const manualEnabled = typeof data.manualPumpControlEnabled === "boolean" ? data.manualPumpControlEnabled : false;
+    const autoEnabled = typeof data.autoPumpEnabled === "boolean" ? data.autoPumpEnabled : false;
+    statusPumpModeEl.textContent = `${manualEnabled ? "Manuell an" : "Manuell aus"} | ${autoEnabled ? "Auto an" : "Auto aus"}`;
+
+    const threshold = Number.isFinite(Number(data.moistureThresholdPercent)) ? Number(data.moistureThresholdPercent) : null;
+    statusMoistureEl.textContent = threshold === null ? `${percent}% (${raw})` : `${percent}% (${raw}) | Schwellwert ${threshold}%`;
+
+    statusLightEl.textContent = ledOn ? `An (R${lightREl.value} G${lightGEl.value} B${lightBEl.value})` : "Aus";
+
+    const effect = typeof data.ledEffect === "string" ? data.ledEffect : "static";
+    const effectSpeed = Number.isFinite(Number(data.ledEffectSpeedMs)) ? Number(data.ledEffectSpeedMs) : 0;
+    statusLightEffectEl.textContent = `${effect} (${effectSpeed} ms)`;
+
+    const scheduleEnabled = typeof data.lightScheduleEnabled === "boolean" ? data.lightScheduleEnabled : false;
+    const onMinute = Number.isFinite(Number(data.lightOnMinute)) ? Number(data.lightOnMinute) : 18 * 60;
+    const offMinute = Number.isFinite(Number(data.lightOffMinute)) ? Number(data.lightOffMinute) : 23 * 60;
+    statusLightScheduleEl.textContent = scheduleEnabled
+        ? `${minutesToTimeInputValue(onMinute)}-${minutesToTimeInputValue(offMinute)}`
+        : "Aus";
+}
+
+async function fetchGardenSettings() {
+    const endpoint = `${buildBaseUrl()}/api/garden/settings`;
+    const response = await fetch(endpoint, { method: "GET" });
+    const text = await response.text();
+    let data = {};
+    try {
+        data = JSON.parse(text || "{}");
+    } catch {
+        data = {};
+    }
+    if (!response.ok) {
+        throw new Error(data.message || text || `HTTP ${response.status}`);
+    }
+    return data;
+}
+
+async function saveGardenSettings() {
+    if (!isValidIPv4(ipInputEl.value.trim())) {
+        setStatus("Bitte eine gueltige IPv4-Adresse eintragen.", "warn");
+        return;
+    }
+
+    gardenSettingsSaveBtnEl.disabled = true;
+    try {
+        const payload = {
+            autoPumpEnabled: autoPumpEnabledToggleEl.checked,
+            manualPumpControlEnabled: manualPumpControlToggleEl.checked,
+            moistureThresholdPercent: Number(moistureThresholdInputEl.value || 35),
+            autoPumpDurationMs: Number(autoPumpDurationInputEl.value || 5000),
+            lightScheduleEnabled: lightScheduleEnabledToggleEl.checked,
+            lightOnMinute: timeInputValueToMinutes(lightOnTimeInputEl.value, 18 * 60),
+            lightOffMinute: timeInputValueToMinutes(lightOffTimeInputEl.value, 23 * 60)
+        };
+
+        await postJson("/api/garden/settings", payload);
+        await fetchControllerData(false);
+        setStatus("Garden-Settings gespeichert.", null);
+    } catch (error) {
+        setStatus(`Garden-Settings Fehler: ${error.message}`, "error");
+    } finally {
+        gardenSettingsSaveBtnEl.disabled = false;
+    }
+}
+
+async function saveLightScheduleOnly() {
+    await saveGardenSettings();
+}
+
+async function applyLightEffect() {
+    if (!isValidIPv4(ipInputEl.value.trim())) {
+        setStatus("Bitte eine gueltige IPv4-Adresse eintragen.", "warn");
+        return;
+    }
+
+    lightEffectApplyBtnEl.disabled = true;
+    try {
+        const { r, g, b } = getLightValues();
+        const payload = {
+            on: lightEnabledToggleEl.checked,
+            r,
+            g,
+            b,
+            effect: lightEffectSelectEl.value,
+            effectSpeedMs: Number(lightEffectSpeedInputEl.value || 1200)
+        };
+        await postJson("/api/led/effect", payload);
+        await fetchControllerData(false);
+        setStatus("Licht-Effekt aktualisiert.", null);
+    } catch (error) {
+        setStatus(`Effekt-Fehler: ${error.message}`, "error");
+    } finally {
+        lightEffectApplyBtnEl.disabled = false;
+    }
 }
 
 // Controller communication.
@@ -754,6 +947,13 @@ function resetSettings() {
     ctrlTimezoneEl.textContent = "-";
     ctrlLocalEl.textContent = "-";
     ctrlUpdatedEl.textContent = "-";
+    statusPumpEl.textContent = "-";
+    statusPumpDurationEl.textContent = "-";
+    statusPumpModeEl.textContent = "-";
+    statusMoistureEl.textContent = "-";
+    statusLightEl.textContent = "-";
+    statusLightEffectEl.textContent = "-";
+    statusLightScheduleEl.textContent = "-";
     resetClockState();
 }
 
@@ -797,6 +997,14 @@ async function fetchControllerData(showFeedback = true) {
 
                 setConnectionState("Verbunden", "ok");
                 renderControllerData(data);
+                if (endpoint.endsWith("/api/status")) {
+                    try {
+                        const settings = await fetchGardenSettings();
+                        renderGardenData(settings);
+                    } catch {
+                        // ignore settings fetch errors to keep status responsive
+                    }
+                }
                 return data;
             } catch {
                 // Naechster Endpoint
@@ -989,10 +1197,16 @@ resetButtonEl.addEventListener("click", resetSettings);
 pumpToggleBtnEl.addEventListener("click", togglePump);
 pumpDurationSaveBtnEl.addEventListener("click", savePumpDuration);
 lightApplyBtnEl.addEventListener("click", applyLight);
+lightEffectApplyBtnEl.addEventListener("click", applyLightEffect);
+gardenSettingsSaveBtnEl.addEventListener("click", saveGardenSettings);
+lightScheduleSaveBtnEl.addEventListener("click", saveLightScheduleOnly);
 sensorRefreshBtnEl.addEventListener("click", refreshSensors);
 lightEnabledToggleEl.addEventListener("change", () => {
     lightEnabledTextEl.textContent = lightEnabledToggleEl.checked ? "An" : "Aus";
 });
+manualPumpControlToggleEl.addEventListener("change", updatePumpModeLabels);
+autoPumpEnabledToggleEl.addEventListener("change", updatePumpModeLabels);
+lightScheduleEnabledToggleEl.addEventListener("change", updateLightScheduleLabel);
 lightREl.addEventListener("input", updateLightPreview);
 lightGEl.addEventListener("input", updateLightPreview);
 lightBEl.addEventListener("input", updateLightPreview);
@@ -1004,3 +1218,5 @@ liveStatusTitleEl.textContent = ui[appState.language].liveStatus;
 liveStatusToggleTextEl.textContent = appState.live ? ui[appState.language].liveOn : ui[appState.language].liveOff;
 updateLiveRateState();
 updateLightPreview();
+updatePumpModeLabels();
+updateLightScheduleLabel();

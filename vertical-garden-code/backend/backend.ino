@@ -51,6 +51,9 @@ struct BackendState {
   bool liveRateEnabled = false;
   int liveIntervalMs = 500;
   unsigned long lastUpdateMs = 0;
+  bool localClockValid = false;
+  int localClockBaseSecondsOfDay = 0;
+  unsigned long localClockCapturedMs = 0;
 };
 
 BackendState state;
@@ -84,6 +87,9 @@ struct DeviceControlState {
   int ledEffectSpeedMs = 1200;
   unsigned long lastLedEffectTickMs = 0;
   uint16_t ledEffectStep = 0;
+  bool lightScheduleEnabled = false;
+  int lightOnMinute = 18 * 60;
+  int lightOffMinute = 23 * 60;
 
   unsigned long lastButtonActionMs = 0;
   int testLightMode = 0; // 0=off, 1=white, 2=rgb
@@ -306,6 +312,87 @@ void refreshSensorValues() {
   deviceState.lastMoistureSampleMs = millis();
 }
 
+bool parseTimeOfDayFromIso(const String& value, int& hour, int& minute, int& second) {
+  int tPos = value.lastIndexOf('T');
+  if (tPos < 0 || tPos + 8 >= (int)value.length()) {
+    return false;
+  }
+
+  String hh = value.substring(tPos + 1, tPos + 3);
+  String mm = value.substring(tPos + 4, tPos + 6);
+  String ss = value.substring(tPos + 7, tPos + 9);
+
+  if (!isDigit(hh[0]) || !isDigit(hh[1]) || !isDigit(mm[0]) || !isDigit(mm[1]) || !isDigit(ss[0]) || !isDigit(ss[1])) {
+    return false;
+  }
+
+  hour = hh.toInt();
+  minute = mm.toInt();
+  second = ss.toInt();
+
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) {
+    return false;
+  }
+
+  return true;
+}
+
+void syncLocalClockFromState() {
+  int hour = 0;
+  int minute = 0;
+  int second = 0;
+  if (!parseTimeOfDayFromIso(state.localTime, hour, minute, second)) {
+    state.localClockValid = false;
+    return;
+  }
+
+  state.localClockBaseSecondsOfDay = (hour * 3600) + (minute * 60) + second;
+  state.localClockCapturedMs = millis();
+  state.localClockValid = true;
+}
+
+int getCurrentLocalMinuteOfDay() {
+  if (!state.localClockValid) {
+    return -1;
+  }
+
+  unsigned long elapsedSec = (millis() - state.localClockCapturedMs) / 1000UL;
+  unsigned long secondsToday = (unsigned long)state.localClockBaseSecondsOfDay + elapsedSec;
+  int wrapped = (int)(secondsToday % 86400UL);
+  return wrapped / 60;
+}
+
+bool isMinuteInScheduleWindow(int currentMinute, int startMinute, int endMinute) {
+  if (startMinute == endMinute) {
+    return true;
+  }
+
+  if (startMinute < endMinute) {
+    return currentMinute >= startMinute && currentMinute < endMinute;
+  }
+
+  return currentMinute >= startMinute || currentMinute < endMinute;
+}
+
+void updateLightScheduleControl() {
+  if (!deviceState.lightScheduleEnabled) {
+    return;
+  }
+
+  int currentMinute = getCurrentLocalMinuteOfDay();
+  if (currentMinute < 0) {
+    return;
+  }
+
+  bool shouldBeOn = isMinuteInScheduleWindow(currentMinute, deviceState.lightOnMinute, deviceState.lightOffMinute);
+  if (deviceState.ledStripOn == shouldBeOn) {
+    return;
+  }
+
+  setLedStripState(shouldBeOn, deviceState.ledR, deviceState.ledG, deviceState.ledB);
+  state.lastUpdateMs = millis();
+}
+
 void updateAutoPumpControl() {
   unsigned long nowMs = millis();
   if (nowMs - deviceState.lastMoistureSampleMs >= SENSOR_SAMPLE_INTERVAL_MS) {
@@ -374,7 +461,10 @@ String buildControlJson() {
   j += "\"g\":" + String(deviceState.ledG) + ",";
   j += "\"b\":" + String(deviceState.ledB) + ",";
   j += "\"effect\":\"" + String(ledEffectModeToString(deviceState.ledEffectMode)) + "\",";
-  j += "\"effectSpeedMs\":" + String(deviceState.ledEffectSpeedMs);
+  j += "\"effectSpeedMs\":" + String(deviceState.ledEffectSpeedMs) + ",";
+  j += "\"scheduleEnabled\":" + String(deviceState.lightScheduleEnabled ? "true" : "false") + ",";
+  j += "\"scheduleOnMinute\":" + String(deviceState.lightOnMinute) + ",";
+  j += "\"scheduleOffMinute\":" + String(deviceState.lightOffMinute);
   j += "}";
   j += "}";
   return j;
@@ -505,6 +595,9 @@ String buildStatusJson() {
   j += "\"ledStripB\":" + String(deviceState.ledB) + ",";
   j += "\"ledEffect\":\"" + String(ledEffectModeToString(deviceState.ledEffectMode)) + "\",";
   j += "\"ledEffectSpeedMs\":" + String(deviceState.ledEffectSpeedMs) + ",";
+  j += "\"lightScheduleEnabled\":" + String(deviceState.lightScheduleEnabled ? "true" : "false") + ",";
+  j += "\"lightOnMinute\":" + String(deviceState.lightOnMinute) + ",";
+  j += "\"lightOffMinute\":" + String(deviceState.lightOffMinute) + ",";
   j += "\"testButtonSystemEnabled\":" + String(TEST_BUTTON_SYSTEM_ENABLED ? "true" : "false") + ",";
   j += "\"testLightMode\":" + String(deviceState.testLightMode) + ",";
   j += "\"uptimeMs\":" + String(millis()) + ",";
@@ -632,7 +725,10 @@ void handleGetGardenSettings() {
   j += "\"moistureThresholdPercent\":" + String(deviceState.moistureThresholdPercent) + ",";
   j += "\"autoPumpDurationMs\":" + String(deviceState.autoPumpDurationMs) + ",";
   j += "\"ledEffect\":\"" + String(ledEffectModeToString(deviceState.ledEffectMode)) + "\",";
-  j += "\"ledEffectSpeedMs\":" + String(deviceState.ledEffectSpeedMs);
+  j += "\"ledEffectSpeedMs\":" + String(deviceState.ledEffectSpeedMs) + ",";
+  j += "\"lightScheduleEnabled\":" + String(deviceState.lightScheduleEnabled ? "true" : "false") + ",";
+  j += "\"lightOnMinute\":" + String(deviceState.lightOnMinute) + ",";
+  j += "\"lightOffMinute\":" + String(deviceState.lightOffMinute);
   j += "}";
   sendJson(200, j);
 }
@@ -643,8 +739,11 @@ void handlePostGardenSettings() {
   deviceState.manualPumpControlEnabled = extractJsonBool(body, "manualPumpControlEnabled", deviceState.manualPumpControlEnabled);
   deviceState.moistureThresholdPercent = clampInt(extractJsonInt(body, "moistureThresholdPercent", deviceState.moistureThresholdPercent), 0, 100);
   deviceState.autoPumpDurationMs = clampInt(extractJsonInt(body, "autoPumpDurationMs", deviceState.autoPumpDurationMs), PUMP_DURATION_MIN_MS, PUMP_DURATION_MAX_MS);
+  deviceState.lightScheduleEnabled = extractJsonBool(body, "lightScheduleEnabled", deviceState.lightScheduleEnabled);
+  deviceState.lightOnMinute = clampInt(extractJsonInt(body, "lightOnMinute", deviceState.lightOnMinute), 0, 1439);
+  deviceState.lightOffMinute = clampInt(extractJsonInt(body, "lightOffMinute", deviceState.lightOffMinute), 0, 1439);
   state.lastUpdateMs = millis();
-  sendJson(200, "{\"ok\":true,\"message\":\"ok\",\"autoPumpEnabled\":" + String(deviceState.autoPumpEnabled ? "true" : "false") + ",\"manualPumpControlEnabled\":" + String(deviceState.manualPumpControlEnabled ? "true" : "false") + ",\"moistureThresholdPercent\":" + String(deviceState.moistureThresholdPercent) + ",\"autoPumpDurationMs\":" + String(deviceState.autoPumpDurationMs) + "}");
+  sendJson(200, "{\"ok\":true,\"message\":\"ok\",\"autoPumpEnabled\":" + String(deviceState.autoPumpEnabled ? "true" : "false") + ",\"manualPumpControlEnabled\":" + String(deviceState.manualPumpControlEnabled ? "true" : "false") + ",\"moistureThresholdPercent\":" + String(deviceState.moistureThresholdPercent) + ",\"autoPumpDurationMs\":" + String(deviceState.autoPumpDurationMs) + ",\"lightScheduleEnabled\":" + String(deviceState.lightScheduleEnabled ? "true" : "false") + ",\"lightOnMinute\":" + String(deviceState.lightOnMinute) + ",\"lightOffMinute\":" + String(deviceState.lightOffMinute) + "}");
 }
 
 void handlePostPump() {
@@ -749,6 +848,7 @@ void handlePostTime() {
   state.timezone = extractJsonString(body, "timezone", state.timezone);
   state.mode = extractJsonString(body, "mode", state.mode);
   state.localTime = extractJsonString(body, "localTime", state.localTime);
+  syncLocalClockFromState();
   state.lastUpdateMs = millis();
 
   Serial.println("[API] POST /api/time");
@@ -846,6 +946,7 @@ void setup() {
   pinMode(PIN_BTN_ENTER, INPUT_PULLUP);
 
   refreshSensorValues();
+  syncLocalClockFromState();
 
   if (TEST_BUTTON_SYSTEM_ENABLED) {
     Serial.println("[TEST] Button test system is ENABLED");
@@ -871,6 +972,8 @@ void loop() {
   }
 
   updateAutoPumpControl();
+
+  updateLightScheduleControl();
 
   if (deviceState.pumpOn && deviceState.pumpStopAtMs != 0 && millis() >= deviceState.pumpStopAtMs) {
     setPumpState(false);

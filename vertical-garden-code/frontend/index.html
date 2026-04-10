@@ -92,6 +92,13 @@
                         <div class="info-card"><span class="k">Controller Zeitzone</span><span id="ctrlTimezone" class="v">-</span></div>
                         <div class="info-card"><span class="k">Lokale Zeit</span><span id="ctrlLocal" class="v">-</span></div>
                         <div class="info-card"><span class="k">Letzte Aktualisierung</span><span id="ctrlUpdated" class="v">-</span></div>
+                        <div class="info-card"><span class="k">Pumpe</span><span id="statusPump" class="v">-</span></div>
+                        <div class="info-card"><span class="k">Pumpenlaufzeit / Rest</span><span id="statusPumpDuration" class="v">-</span></div>
+                        <div class="info-card"><span class="k">Pumpenmodus</span><span id="statusPumpMode" class="v">-</span></div>
+                        <div class="info-card"><span class="k">Feuchtigkeit</span><span id="statusMoisture" class="v">-</span></div>
+                        <div class="info-card"><span class="k">Licht</span><span id="statusLight" class="v">-</span></div>
+                        <div class="info-card"><span class="k">Licht Effekt</span><span id="statusLightEffect" class="v">-</span></div>
+                        <div class="info-card"><span class="k">Licht Zeitplan</span><span id="statusLightSchedule" class="v">-</span></div>
                     </div>
 
                 </div>
@@ -221,6 +228,24 @@
                         </div>
                         <div class="row single">
                             <button id="lightEffectApplyBtn" class="secondary" type="button">Effekt anwenden</button>
+                        </div>
+
+                        <label class="pill-toggle" for="lightScheduleEnabledToggle">
+                            <input id="lightScheduleEnabledToggle" type="checkbox">
+                            <span id="lightScheduleEnabledText">Licht-Zeitplan aus</span>
+                        </label>
+                        <div class="row">
+                            <div>
+                                <label for="lightOnTimeInput">Licht an (Uhrzeit)</label>
+                                <input id="lightOnTimeInput" type="time" value="18:00">
+                            </div>
+                            <div>
+                                <label for="lightOffTimeInput">Licht aus (Uhrzeit)</label>
+                                <input id="lightOffTimeInput" type="time" value="23:00">
+                            </div>
+                        </div>
+                        <div class="row single">
+                            <button id="lightScheduleSaveBtn" class="secondary" type="button">Licht-Zeitplan speichern</button>
                         </div>
                     </article>
                 </div>

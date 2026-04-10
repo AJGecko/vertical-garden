@@ -92,6 +92,8 @@
                         <div class="info-card"><span class="k">Controller Zeitzone</span><span id="ctrlTimezone" class="v">-</span></div>
                         <div class="info-card"><span class="k">Lokale Zeit</span><span id="ctrlLocal" class="v">-</span></div>
                         <div class="info-card"><span class="k">Letzte Aktualisierung</span><span id="ctrlUpdated" class="v">-</span></div>
+                        <div class="info-card"><span class="k">Geraet (SSID)</span><span id="statusDeviceSsid" class="v">-</span></div>
+                        <div class="info-card"><span class="k">Geraet (IP:Port)</span><span id="statusDeviceIp" class="v">-</span></div>
                         <div class="info-card"><span class="k">Pumpe</span><span id="statusPump" class="v">-</span></div>
                         <div class="info-card"><span class="k">Pumpenlaufzeit / Rest</span><span id="statusPumpDuration" class="v">-</span></div>
                         <div class="info-card"><span class="k">Pumpenmodus</span><span id="statusPumpMode" class="v">-</span></div>
@@ -160,6 +162,20 @@
                             </div>
                             <div class="button-column">
                                 <button id="pumpDurationSaveBtn" class="secondary" type="button">Laufzeit speichern</button>
+                            </div>
+                        </div>
+
+                        <div class="sensor-in-pump">
+                            <div class="card-head">
+                                <h3 id="sensorTitle">Sensor</h3>
+                                <button id="sensorRefreshBtn" class="secondary tiny-button" type="button">Aktualisieren</button>
+                            </div>
+                            <div class="sensor-values">
+                                <div><strong id="moisturePercent">-</strong><span id="moisturePercentLabel">Feuchtigkeit</span></div>
+                                <div><strong id="moistureRaw">-</strong><span id="moistureRawLabel">Raw Wert</span></div>
+                            </div>
+                            <div class="sensor-bar">
+                                <div id="moistureBar" class="sensor-bar-fill" style="width:0%"></div>
                             </div>
                         </div>
                     </article>
@@ -250,19 +266,6 @@
                     </article>
                 </div>
 
-                <article class="garden-card sensor-card">
-                    <div class="card-head">
-                        <h3 id="sensorTitle">Sensor</h3>
-                        <button id="sensorRefreshBtn" class="secondary tiny-button" type="button">Aktualisieren</button>
-                    </div>
-                    <div class="sensor-values">
-                        <div><strong id="moisturePercent">-</strong><span id="moisturePercentLabel">Feuchtigkeit</span></div>
-                        <div><strong id="moistureRaw">-</strong><span id="moistureRawLabel">Raw Wert</span></div>
-                    </div>
-                    <div class="sensor-bar">
-                        <div id="moistureBar" class="sensor-bar-fill" style="width:0%"></div>
-                    </div>
-                </article>
             </section>
         </main>
     </section>

@@ -67,6 +67,8 @@ const statusMoistureEl = document.getElementById("statusMoisture");
 const statusLightEl = document.getElementById("statusLight");
 const statusLightEffectEl = document.getElementById("statusLightEffect");
 const statusLightScheduleEl = document.getElementById("statusLightSchedule");
+const statusDeviceSsidEl = document.getElementById("statusDeviceSsid");
+const statusDeviceIpEl = document.getElementById("statusDeviceIp");
 const pumpStateBadgeEl = document.getElementById("pumpStateBadge");
 const pumpFanEl = document.getElementById("pumpFan");
 const pumpToggleBtnEl = document.getElementById("pumpToggleBtn");
@@ -429,7 +431,9 @@ function timeInputValueToMinutes(value, fallbackMinutes) {
 
 function updatePumpModeLabels() {
     const manualOn = manualPumpControlToggleEl.checked;
-    const autoOn = autoPumpEnabledToggleEl.checked;
+    const autoOn = !manualOn;
+    autoPumpEnabledToggleEl.checked = autoOn;
+    autoPumpEnabledToggleEl.disabled = true;
     manualPumpControlTextEl.textContent = manualOn ? "Manuelle Steuerung aktiv" : "Manuelle Steuerung aus";
     autoPumpEnabledTextEl.textContent = autoOn ? "Automatik an" : "Automatik aus";
     pumpToggleBtnEl.disabled = !manualOn;
@@ -505,7 +509,7 @@ function renderGardenData(data) {
     statusPumpDurationEl.textContent = `${formatDurationMs(pumpDurationMs)} / ${formatDurationMs(remainingMs)}`;
 
     const manualEnabled = typeof data.manualPumpControlEnabled === "boolean" ? data.manualPumpControlEnabled : false;
-    const autoEnabled = typeof data.autoPumpEnabled === "boolean" ? data.autoPumpEnabled : false;
+    const autoEnabled = !manualEnabled;
     statusPumpModeEl.textContent = `${manualEnabled ? "Manuell an" : "Manuell aus"} | ${autoEnabled ? "Auto an" : "Auto aus"}`;
 
     const threshold = Number.isFinite(Number(data.moistureThresholdPercent)) ? Number(data.moistureThresholdPercent) : null;
@@ -523,6 +527,42 @@ function renderGardenData(data) {
     statusLightScheduleEl.textContent = scheduleEnabled
         ? `${minutesToTimeInputValue(onMinute)}-${minutesToTimeInputValue(offMinute)}`
         : "Aus";
+
+    const apSsid = typeof data.apSsid === "string" && data.apSsid.length > 0 ? data.apSsid : "-";
+    const apIp = typeof data.apIp === "string" && data.apIp.length > 0 ? data.apIp : "-";
+    const httpPort = Number.isFinite(Number(data.httpPort)) ? Number(data.httpPort) : Number(getPort());
+    statusDeviceSsidEl.textContent = apSsid;
+    statusDeviceIpEl.textContent = apIp === "-" ? "-" : `${apIp}:${httpPort}`;
+}
+
+function renderGardenSettingsData(data) {
+    if (typeof data.manualPumpControlEnabled === "boolean") {
+        manualPumpControlToggleEl.checked = data.manualPumpControlEnabled;
+    }
+    if (Number.isFinite(Number(data.moistureThresholdPercent))) {
+        moistureThresholdInputEl.value = String(data.moistureThresholdPercent);
+    }
+    if (Number.isFinite(Number(data.autoPumpDurationMs))) {
+        autoPumpDurationInputEl.value = String(data.autoPumpDurationMs);
+    }
+    if (typeof data.lightScheduleEnabled === "boolean") {
+        lightScheduleEnabledToggleEl.checked = data.lightScheduleEnabled;
+    }
+    if (Number.isFinite(Number(data.lightOnMinute))) {
+        lightOnTimeInputEl.value = minutesToTimeInputValue(data.lightOnMinute);
+    }
+    if (Number.isFinite(Number(data.lightOffMinute))) {
+        lightOffTimeInputEl.value = minutesToTimeInputValue(data.lightOffMinute);
+    }
+    if (typeof data.ledEffect === "string") {
+        lightEffectSelectEl.value = data.ledEffect;
+    }
+    if (Number.isFinite(Number(data.ledEffectSpeedMs))) {
+        lightEffectSpeedInputEl.value = String(data.ledEffectSpeedMs);
+    }
+
+    updatePumpModeLabels();
+    updateLightScheduleLabel();
 }
 
 async function fetchGardenSettings() {
@@ -550,8 +590,8 @@ async function saveGardenSettings() {
     gardenSettingsSaveBtnEl.disabled = true;
     try {
         const payload = {
-            autoPumpEnabled: autoPumpEnabledToggleEl.checked,
             manualPumpControlEnabled: manualPumpControlToggleEl.checked,
+            autoPumpEnabled: !manualPumpControlToggleEl.checked,
             moistureThresholdPercent: Number(moistureThresholdInputEl.value || 35),
             autoPumpDurationMs: Number(autoPumpDurationInputEl.value || 5000),
             lightScheduleEnabled: lightScheduleEnabledToggleEl.checked,
@@ -858,7 +898,17 @@ async function savePumpDuration() {
     pumpDurationSaveBtnEl.disabled = true;
     try {
         const pumpDurationMs = Number(pumpDurationInputEl.value || 5000);
+        const autoPumpDurationMs = Number(autoPumpDurationInputEl.value || pumpDurationMs);
         await postJson("/api/pump-duration", { pumpDurationMs });
+        await postJson("/api/garden/settings", {
+            manualPumpControlEnabled: manualPumpControlToggleEl.checked,
+            autoPumpEnabled: !manualPumpControlToggleEl.checked,
+            moistureThresholdPercent: Number(moistureThresholdInputEl.value || 35),
+            autoPumpDurationMs,
+            lightScheduleEnabled: lightScheduleEnabledToggleEl.checked,
+            lightOnMinute: timeInputValueToMinutes(lightOnTimeInputEl.value, 18 * 60),
+            lightOffMinute: timeInputValueToMinutes(lightOffTimeInputEl.value, 23 * 60)
+        });
         await fetchControllerData(false);
         setStatus("Pumpenlaufzeit gespeichert.", null);
     } catch (error) {
@@ -954,6 +1004,8 @@ function resetSettings() {
     statusLightEl.textContent = "-";
     statusLightEffectEl.textContent = "-";
     statusLightScheduleEl.textContent = "-";
+    statusDeviceSsidEl.textContent = "-";
+    statusDeviceIpEl.textContent = "-";
     resetClockState();
 }
 
@@ -1000,7 +1052,7 @@ async function fetchControllerData(showFeedback = true) {
                 if (endpoint.endsWith("/api/status")) {
                     try {
                         const settings = await fetchGardenSettings();
-                        renderGardenData(settings);
+                        renderGardenSettingsData(settings);
                     } catch {
                         // ignore settings fetch errors to keep status responsive
                     }
@@ -1204,7 +1256,10 @@ sensorRefreshBtnEl.addEventListener("click", refreshSensors);
 lightEnabledToggleEl.addEventListener("change", () => {
     lightEnabledTextEl.textContent = lightEnabledToggleEl.checked ? "An" : "Aus";
 });
-manualPumpControlToggleEl.addEventListener("change", updatePumpModeLabels);
+manualPumpControlToggleEl.addEventListener("change", async () => {
+    updatePumpModeLabels();
+    await saveGardenSettings();
+});
 autoPumpEnabledToggleEl.addEventListener("change", updatePumpModeLabels);
 lightScheduleEnabledToggleEl.addEventListener("change", updateLightScheduleLabel);
 lightREl.addEventListener("input", updateLightPreview);

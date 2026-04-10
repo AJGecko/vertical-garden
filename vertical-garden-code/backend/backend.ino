@@ -69,8 +69,8 @@ struct DeviceControlState {
   bool pumpOn = false;
   unsigned long pumpStopAtMs = 0;
   int pumpDurationMs = 5000;
-  bool autoPumpEnabled = false;
-  bool manualPumpControlEnabled = true;
+  bool autoPumpEnabled = true;
+  bool manualPumpControlEnabled = false;
   int moistureThresholdPercent = 35;
   int autoPumpDurationMs = 5000;
   unsigned long pumpAutoCooldownUntilMs = 0;
@@ -230,6 +230,13 @@ void setPumpState(bool on) {
 void startPumpForMs(int durationMs) {
   int safeDuration = clampInt(durationMs, PUMP_DURATION_MIN_MS, PUMP_DURATION_MAX_MS);
   deviceState.pumpDurationMs = safeDuration;
+  setPumpState(true);
+  deviceState.pumpStopAtMs = millis() + (unsigned long)safeDuration;
+  state.lastUpdateMs = millis();
+}
+
+void runPumpForMsNoPreset(int durationMs) {
+  int safeDuration = clampInt(durationMs, PUMP_DURATION_MIN_MS, PUMP_DURATION_MAX_MS);
   setPumpState(true);
   deviceState.pumpStopAtMs = millis() + (unsigned long)safeDuration;
   state.lastUpdateMs = millis();
@@ -412,7 +419,7 @@ void updateAutoPumpControl() {
   }
 
   if (deviceState.moisturePercent < deviceState.moistureThresholdPercent) {
-    startPumpForMs(deviceState.autoPumpDurationMs);
+    runPumpForMsNoPreset(deviceState.autoPumpDurationMs);
     deviceState.pumpAutoCooldownUntilMs = millis() + AUTO_PUMP_COOLDOWN_MS;
     Serial.print("[AUTO] Moisture below threshold, pump started. moisture=");
     Serial.print(deviceState.moisturePercent);
@@ -604,7 +611,8 @@ String buildStatusJson() {
   j += "\"updatedAgoMs\":" + String(millis() - state.lastUpdateMs) + ",";
   j += "\"apStarted\":" + String(apStarted ? "true" : "false") + ",";
   j += "\"apSsid\":\"" + jsonEscape(apSsid) + "\",";
-  j += "\"apIp\":\"" + (apStarted ? WiFi.softAPIP().toString() : String("0.0.0.0")) + "\"";
+  j += "\"apIp\":\"" + (apStarted ? WiFi.softAPIP().toString() : String("0.0.0.0")) + "\",";
+  j += "\"httpPort\":" + String(HTTP_PORT);
   j += "}";
   return j;
 }
@@ -735,8 +743,9 @@ void handleGetGardenSettings() {
 
 void handlePostGardenSettings() {
   String body = server.arg("plain");
-  deviceState.autoPumpEnabled = extractJsonBool(body, "autoPumpEnabled", deviceState.autoPumpEnabled);
   deviceState.manualPumpControlEnabled = extractJsonBool(body, "manualPumpControlEnabled", deviceState.manualPumpControlEnabled);
+  // Product rule: auto mode is enabled unless manual control is active.
+  deviceState.autoPumpEnabled = !deviceState.manualPumpControlEnabled;
   deviceState.moistureThresholdPercent = clampInt(extractJsonInt(body, "moistureThresholdPercent", deviceState.moistureThresholdPercent), 0, 100);
   deviceState.autoPumpDurationMs = clampInt(extractJsonInt(body, "autoPumpDurationMs", deviceState.autoPumpDurationMs), PUMP_DURATION_MIN_MS, PUMP_DURATION_MAX_MS);
   deviceState.lightScheduleEnabled = extractJsonBool(body, "lightScheduleEnabled", deviceState.lightScheduleEnabled);

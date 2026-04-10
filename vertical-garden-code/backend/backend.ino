@@ -890,9 +890,18 @@ void handlePostPump() {
 void handlePostLed() {
   String body = server.arg("plain");
   bool on = extractJsonBool(body, "on", deviceState.ledStripOn);
+  on = extractJsonBool(body, "ledStripOn", on);
   int r = clampInt(extractJsonInt(body, "r", deviceState.ledR), 0, 255);
+  r = clampInt(extractJsonInt(body, "ledStripR", r), 0, 255);
   int g = clampInt(extractJsonInt(body, "g", deviceState.ledG), 0, 255);
+  g = clampInt(extractJsonInt(body, "ledStripG", g), 0, 255);
   int b = clampInt(extractJsonInt(body, "b", deviceState.ledB), 0, 255);
+  b = clampInt(extractJsonInt(body, "ledStripB", b), 0, 255);
+
+  // Be tolerant to stale frontend state: if any RGB channel is set, force ON.
+  if (r > 0 || g > 0 || b > 0) {
+    on = true;
+  }
 
   // Manual panel action should remain controllable; disable schedule override.
   deviceState.lightScheduleEnabled = false;
@@ -914,9 +923,17 @@ void handlePostLedEffect() {
 
   int speedMs = clampInt(extractJsonInt(body, "effectSpeedMs", deviceState.ledEffectSpeedMs), 120, 10000);
   bool on = extractJsonBool(body, "on", deviceState.ledStripOn);
+  on = extractJsonBool(body, "ledStripOn", on);
   int r = clampInt(extractJsonInt(body, "r", deviceState.ledR), 0, 255);
+  r = clampInt(extractJsonInt(body, "ledStripR", r), 0, 255);
   int g = clampInt(extractJsonInt(body, "g", deviceState.ledG), 0, 255);
+  g = clampInt(extractJsonInt(body, "ledStripG", g), 0, 255);
   int b = clampInt(extractJsonInt(body, "b", deviceState.ledB), 0, 255);
+  b = clampInt(extractJsonInt(body, "ledStripB", b), 0, 255);
+
+  if (r > 0 || g > 0 || b > 0) {
+    on = true;
+  }
 
   // Manual panel action should remain controllable; disable schedule override.
   deviceState.lightScheduleEnabled = false;

@@ -907,8 +907,37 @@ function restoreFormState() {
 
 // Controller state mapping and polling.
 function renderControllerData(data) {
-    const timezone = data.timezone || data.tz || "-";
-    const local = data.localTime || data.localDateTime || data.time || data.datetime || data.isoTime || null;
+    const normalized = { ...data };
+    if (data && typeof data === "object") {
+        if (data.pump && typeof data.pump === "object") {
+            normalized.pumpOn = data.pump.on;
+            normalized.pumpDurationMs = data.pump.durationMs;
+            normalized.pumpRemainingMs = data.pump.remainingMs;
+            normalized.autoPumpEnabled = data.pump.autoEnabled;
+            normalized.manualPumpControlEnabled = data.pump.manualEnabled;
+            normalized.moistureThresholdPercent = data.pump.thresholdPercent;
+            normalized.autoPumpDurationMs = data.pump.autoDurationMs;
+            normalized.autoPumpCooldownMs = data.pump.autoCooldownMs;
+        }
+        if (data.moisture && typeof data.moisture === "object") {
+            normalized.moistureRaw = data.moisture.raw;
+            normalized.moisturePercent = data.moisture.percent;
+        }
+        if (data.ledStrip && typeof data.ledStrip === "object") {
+            normalized.ledStripOn = data.ledStrip.on;
+            normalized.ledStripR = data.ledStrip.r;
+            normalized.ledStripG = data.ledStrip.g;
+            normalized.ledStripB = data.ledStrip.b;
+            normalized.ledEffect = data.ledStrip.effect;
+            normalized.ledEffectSpeedMs = data.ledStrip.effectSpeedMs;
+            normalized.lightScheduleEnabled = data.ledStrip.scheduleEnabled;
+            normalized.lightOnMinute = data.ledStrip.scheduleOnMinute;
+            normalized.lightOffMinute = data.ledStrip.scheduleOffMinute;
+        }
+    }
+
+    const timezone = normalized.timezone || normalized.tz || "-";
+    const local = normalized.localTime || normalized.localDateTime || normalized.time || normalized.datetime || normalized.isoTime || null;
 
     let displayTime = "-";
     if (local) {
@@ -931,7 +960,7 @@ function renderControllerData(data) {
 
     ctrlTimezoneEl.textContent = timezone;
     ctrlUpdatedEl.textContent = new Date().toLocaleString(DISPLAY_LOCALE);
-    renderGardenData(data);
+    renderGardenData(normalized);
     renderLiveClocks();
 }
 

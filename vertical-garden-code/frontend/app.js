@@ -691,8 +691,12 @@ async function applyLightEffect() {
     appState.lightDraftActive = true;
     try {
         const { r, g, b } = getLightValues();
+        const autoOn = (r > 0 || g > 0 || b > 0);
+        const targetOn = lightEnabledToggleEl.checked || autoOn;
+        lightEnabledToggleEl.checked = targetOn;
+        lightEnabledTextEl.textContent = targetOn ? "An" : "Aus";
         const payload = {
-            on: lightEnabledToggleEl.checked,
+            on: targetOn,
             r,
             g,
             b,
@@ -996,7 +1000,11 @@ async function applyLight() {
     appState.lightDraftActive = true;
     try {
         const { r, g, b } = getLightValues();
-        await postJson("/api/led", { on: lightEnabledToggleEl.checked, r, g, b });
+        const autoOn = (r > 0 || g > 0 || b > 0);
+        const targetOn = lightEnabledToggleEl.checked || autoOn;
+        lightEnabledToggleEl.checked = targetOn;
+        lightEnabledTextEl.textContent = targetOn ? "An" : "Aus";
+        await postJson("/api/led", { on: targetOn, r, g, b });
         await fetchControllerData(false);
         setStatus("RGB aktualisiert.", null);
     } catch (error) {

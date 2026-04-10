@@ -421,8 +421,12 @@ button:disabled {
 
 .garden-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
     gap: 12px;
+}
+
+.garden-card .row {
+    grid-template-columns: 1fr;
 }
 
 .garden-card {
@@ -496,7 +500,7 @@ button:disabled {
 
 .button-column {
     display: grid;
-    align-content: end;
+    align-content: start;
 }
 
 .rgb-grid {

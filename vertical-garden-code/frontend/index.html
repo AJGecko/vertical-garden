@@ -142,6 +142,10 @@
                         <div class="row single">
                             <button id="pumpToggleBtn" type="button">Pumpe umschalten</button>
                         </div>
+                        <label class="pill-toggle" for="manualPumpControlToggle">
+                            <input id="manualPumpControlToggle" type="checkbox" checked>
+                            <span id="manualPumpControlText">Manuelle Steuerung aktiv</span>
+                        </label>
                         <div class="row">
                             <div>
                                 <label id="pumpDurationLabel" for="pumpDurationInput">Pumpenlaufzeit (ms)</label>
@@ -150,6 +154,29 @@
                             <div class="button-column">
                                 <button id="pumpDurationSaveBtn" class="secondary" type="button">Laufzeit speichern</button>
                             </div>
+                        </div>
+                    </article>
+
+                    <article class="garden-card">
+                        <div class="card-head">
+                            <h3 id="pumpAutoTitle">Pumpen Automatik</h3>
+                        </div>
+                        <label class="pill-toggle" for="autoPumpEnabledToggle">
+                            <input id="autoPumpEnabledToggle" type="checkbox">
+                            <span id="autoPumpEnabledText">Automatik aus</span>
+                        </label>
+                        <div class="row">
+                            <div>
+                                <label for="moistureThresholdInput">Feuchte Schwellwert (%)</label>
+                                <input id="moistureThresholdInput" type="number" min="0" max="100" step="1" value="35">
+                            </div>
+                            <div>
+                                <label for="autoPumpDurationInput">Auto Laufzeit (ms)</label>
+                                <input id="autoPumpDurationInput" type="number" min="1000" max="120000" step="500" value="5000">
+                            </div>
+                        </div>
+                        <div class="row single">
+                            <button id="gardenSettingsSaveBtn" class="secondary" type="button">Automatik speichern</button>
                         </div>
                     </article>
 
@@ -175,6 +202,25 @@
 
                         <div class="row single">
                             <button id="lightApplyBtn" type="button">RGB anwenden</button>
+                        </div>
+
+                        <div class="row">
+                            <div>
+                                <label for="lightEffectSelect">Effekt</label>
+                                <select id="lightEffectSelect">
+                                    <option value="static">Static</option>
+                                    <option value="blink">Blink</option>
+                                    <option value="breathe">Breathe</option>
+                                    <option value="rainbow">Rainbow</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="lightEffectSpeedInput">Effekt Geschwindigkeit (ms)</label>
+                                <input id="lightEffectSpeedInput" type="number" min="120" max="10000" step="10" value="1200">
+                            </div>
+                        </div>
+                        <div class="row single">
+                            <button id="lightEffectApplyBtn" class="secondary" type="button">Effekt anwenden</button>
                         </div>
                     </article>
                 </div>

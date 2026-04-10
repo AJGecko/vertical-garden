@@ -60,10 +60,26 @@ const ctrlTimeEl = document.getElementById("ctrlTime");
 const ctrlTimezoneEl = document.getElementById("ctrlTimezone");
 const ctrlLocalEl = document.getElementById("ctrlLocal");
 const ctrlUpdatedEl = document.getElementById("ctrlUpdated");
+const pumpStateBadgeEl = document.getElementById("pumpStateBadge");
+const pumpFanEl = document.getElementById("pumpFan");
+const pumpToggleBtnEl = document.getElementById("pumpToggleBtn");
+const pumpDurationInputEl = document.getElementById("pumpDurationInput");
+const pumpDurationSaveBtnEl = document.getElementById("pumpDurationSaveBtn");
+const lightEnabledToggleEl = document.getElementById("lightEnabledToggle");
+const lightEnabledTextEl = document.getElementById("lightEnabledText");
+const lightREl = document.getElementById("lightR");
+const lightGEl = document.getElementById("lightG");
+const lightBEl = document.getElementById("lightB");
+const lightPreviewEl = document.getElementById("lightPreview");
+const lightValueTextEl = document.getElementById("lightValueText");
+const lightApplyBtnEl = document.getElementById("lightApplyBtn");
+const sensorRefreshBtnEl = document.getElementById("sensorRefreshBtn");
+const moisturePercentEl = document.getElementById("moisturePercent");
+const moistureRawEl = document.getElementById("moistureRaw");
+const moistureBarEl = document.getElementById("moistureBar");
 const ctrlState = { statusTimer: null };
 const clockState = {
-    controllerBaseMs: null,
-    controllerCapturedMs: null,
+    controllerDisplayText: "-",
     controllerTimeZone: null,
     hasSample: false
 };
@@ -157,8 +173,7 @@ const fallbackTimezones = [
 
 // Resets projected controller clock values.
 function resetClockState() {
-    clockState.controllerBaseMs = null;
-    clockState.controllerCapturedMs = null;
+    clockState.controllerDisplayText = "-";
     clockState.controllerTimeZone = null;
     clockState.hasSample = false;
 }
@@ -341,18 +356,55 @@ function renderLiveClocks() {
 
     autoNowTextEl.textContent = `${ui[appState.language].autoLabel}: ${new Date(now).toLocaleString(DISPLAY_LOCALE, { timeZone: timezone })} (${timezone})`;
 
-    if (!clockState.hasSample || clockState.controllerBaseMs === null || clockState.controllerCapturedMs === null) {
+    if (!clockState.hasSample) {
         ctrlTimeEl.textContent = "-";
         ctrlLocalEl.textContent = new Date(now).toLocaleString(DISPLAY_LOCALE, { timeZone: timezone });
         return;
     }
 
-    const elapsed = now - clockState.controllerCapturedMs;
-    const projectedControllerTime = new Date(clockState.controllerBaseMs + elapsed);
-    ctrlTimeEl.textContent = projectedControllerTime.toLocaleString(DISPLAY_LOCALE, {
-        timeZone: clockState.controllerTimeZone || timezone
-    });
+    // Keep the controller time as last reported value from backend (no artificial ticking).
+    ctrlTimeEl.textContent = clockState.controllerDisplayText;
     ctrlLocalEl.textContent = new Date(now).toLocaleString(DISPLAY_LOCALE, { timeZone: timezone });
+}
+
+function getLightValues() {
+    return {
+        r: Number(lightREl.value || 0),
+        g: Number(lightGEl.value || 0),
+        b: Number(lightBEl.value || 0)
+    };
+}
+
+function updateLightPreview() {
+    const { r, g, b } = getLightValues();
+    lightPreviewEl.style.background = `rgb(${r}, ${g}, ${b})`;
+    lightValueTextEl.textContent = `R${r} G${g} B${b}`;
+}
+
+function renderGardenData(data) {
+    const pumpOn = Boolean(data.pumpOn);
+    pumpStateBadgeEl.textContent = pumpOn ? "An" : "Aus";
+    pumpStateBadgeEl.className = `state-badge ${pumpOn ? "on" : "off"}`;
+    pumpFanEl.classList.toggle("on", pumpOn);
+
+    if (Number.isFinite(Number(data.pumpDurationMs))) {
+        pumpDurationInputEl.value = String(data.pumpDurationMs);
+    }
+
+    const ledOn = Boolean(data.ledStripOn);
+    lightEnabledToggleEl.checked = ledOn;
+    lightEnabledTextEl.textContent = ledOn ? "An" : "Aus";
+
+    if (Number.isFinite(Number(data.ledStripR))) lightREl.value = String(data.ledStripR);
+    if (Number.isFinite(Number(data.ledStripG))) lightGEl.value = String(data.ledStripG);
+    if (Number.isFinite(Number(data.ledStripB))) lightBEl.value = String(data.ledStripB);
+    updateLightPreview();
+
+    const percent = Number.isFinite(Number(data.moisturePercent)) ? Number(data.moisturePercent) : 0;
+    const raw = Number.isFinite(Number(data.moistureRaw)) ? Number(data.moistureRaw) : 0;
+    moisturePercentEl.textContent = `${percent}%`;
+    moistureRawEl.textContent = String(raw);
+    moistureBarEl.style.width = `${Math.max(0, Math.min(100, percent))}%`;
 }
 
 // Controller communication.
@@ -552,28 +604,97 @@ function renderControllerData(data) {
     const local = data.localTime || data.localDateTime || data.time || data.datetime || data.isoTime || null;
 
     let displayTime = "-";
-    let parsedControllerDate = null;
     if (local) {
-        const parsed = new Date(local);
-        displayTime = Number.isNaN(parsed.getTime())
-            ? String(local)
-            : parsed.toLocaleString(DISPLAY_LOCALE, { timeZone: timezone !== "-" ? timezone : undefined });
-        parsedControllerDate = Number.isNaN(parsed.getTime()) ? null : parsed;
+        // Backend sends local wall-clock time, often without timezone suffix.
+        displayTime = String(local).replace("T", " ");
     }
 
-    if (parsedControllerDate) {
-        clockState.controllerBaseMs = parsedControllerDate.getTime();
-        clockState.controllerCapturedMs = Date.now();
-        clockState.controllerTimeZone = timezone !== "-" ? timezone : null;
-        clockState.hasSample = true;
-    } else {
-        resetClockState();
-        ctrlTimeEl.textContent = displayTime;
-    }
+    clockState.controllerDisplayText = displayTime;
+    clockState.controllerTimeZone = timezone !== "-" ? timezone : null;
+    clockState.hasSample = displayTime !== "-";
 
     ctrlTimezoneEl.textContent = timezone;
     ctrlUpdatedEl.textContent = new Date().toLocaleString(DISPLAY_LOCALE);
+    renderGardenData(data);
     renderLiveClocks();
+}
+
+async function postJson(path, payload) {
+    const endpoint = `${buildBaseUrl()}${path}`;
+    const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+    });
+    const text = await response.text();
+    let data = {};
+    try {
+        data = JSON.parse(text || "{}");
+    } catch {
+        data = { raw: text };
+    }
+    if (!response.ok) {
+        throw new Error(data.message || text || `HTTP ${response.status}`);
+    }
+    return data;
+}
+
+async function togglePump() {
+    if (!isValidIPv4(ipInputEl.value.trim())) {
+        setStatus("Bitte eine gueltige IPv4-Adresse eintragen.", "warn");
+        return;
+    }
+    pumpToggleBtnEl.disabled = true;
+    try {
+        const durationMs = Number(pumpDurationInputEl.value || 5000);
+        await postJson("/api/pump", { action: "toggle", durationMs });
+        await fetchControllerData(false);
+        setStatus("Pumpe aktualisiert.", null);
+    } catch (error) {
+        setStatus(`Pumpenfehler: ${error.message}`, "error");
+    } finally {
+        pumpToggleBtnEl.disabled = false;
+    }
+}
+
+async function savePumpDuration() {
+    if (!isValidIPv4(ipInputEl.value.trim())) {
+        setStatus("Bitte eine gueltige IPv4-Adresse eintragen.", "warn");
+        return;
+    }
+    pumpDurationSaveBtnEl.disabled = true;
+    try {
+        const pumpDurationMs = Number(pumpDurationInputEl.value || 5000);
+        await postJson("/api/pump-duration", { pumpDurationMs });
+        await fetchControllerData(false);
+        setStatus("Pumpenlaufzeit gespeichert.", null);
+    } catch (error) {
+        setStatus(`Speicherfehler: ${error.message}`, "error");
+    } finally {
+        pumpDurationSaveBtnEl.disabled = false;
+    }
+}
+
+async function applyLight() {
+    if (!isValidIPv4(ipInputEl.value.trim())) {
+        setStatus("Bitte eine gueltige IPv4-Adresse eintragen.", "warn");
+        return;
+    }
+    lightApplyBtnEl.disabled = true;
+    try {
+        const { r, g, b } = getLightValues();
+        await postJson("/api/led", { on: lightEnabledToggleEl.checked, r, g, b });
+        await fetchControllerData(false);
+        setStatus("RGB aktualisiert.", null);
+    } catch (error) {
+        setStatus(`RGB-Fehler: ${error.message}`, "error");
+    } finally {
+        lightApplyBtnEl.disabled = false;
+    }
+}
+
+async function refreshSensors() {
+    await fetchControllerData(false);
 }
 
 function stopPolling() {
@@ -649,8 +770,9 @@ async function fetchControllerData(showFeedback = true) {
 
     const baseUrl = buildBaseUrl();
     const endpoints = [
-        `${baseUrl}/api/time`,
         `${baseUrl}/api/status`,
+        `${baseUrl}/api/sensors`,
+        `${baseUrl}/api/time`,
         `${baseUrl}/status`
     ];
 
@@ -864,10 +986,21 @@ timezoneInputEl.addEventListener("change", () => {
 portInputEl.addEventListener("change", saveFormState);
 manualTimeEl.addEventListener("change", saveFormState);
 resetButtonEl.addEventListener("click", resetSettings);
+pumpToggleBtnEl.addEventListener("click", togglePump);
+pumpDurationSaveBtnEl.addEventListener("click", savePumpDuration);
+lightApplyBtnEl.addEventListener("click", applyLight);
+sensorRefreshBtnEl.addEventListener("click", refreshSensors);
+lightEnabledToggleEl.addEventListener("change", () => {
+    lightEnabledTextEl.textContent = lightEnabledToggleEl.checked ? "An" : "Aus";
+});
+lightREl.addEventListener("input", updateLightPreview);
+lightGEl.addEventListener("input", updateLightPreview);
+lightBEl.addEventListener("input", updateLightPreview);
 
 // Initial render for advanced section and live status
-advancedContentEl.hidden = true;
-advancedChevronEl.textContent = "▾";
+advancedContentEl.hidden = !appState.advancedOpen;
+advancedChevronEl.textContent = appState.advancedOpen ? "▴" : "▾";
 liveStatusTitleEl.textContent = ui[appState.language].liveStatus;
 liveStatusToggleTextEl.textContent = appState.live ? ui[appState.language].liveOn : ui[appState.language].liveOff;
 updateLiveRateState();
+updateLightPreview();

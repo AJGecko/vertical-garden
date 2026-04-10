@@ -31,6 +31,13 @@ const uint32_t BUTTON_DEBOUNCE_MS = 35;
 const int PUMP_DURATION_STEP_MS = 1000;
 const int PUMP_DURATION_MIN_MS = 1000;
 const int PUMP_DURATION_MAX_MS = 120000;
+const uint32_t SENSOR_SAMPLE_INTERVAL_MS = 1000;
+const uint32_t AUTO_PUMP_COOLDOWN_MS = 15000;
+
+const int LED_EFFECT_STATIC = 0;
+const int LED_EFFECT_BLINK = 1;
+const int LED_EFFECT_BREATHE = 2;
+const int LED_EFFECT_RAINBOW = 3;
 
 // --- Button test system (separate toggle) ---
 const bool TEST_BUTTON_SYSTEM_ENABLED = false;
@@ -59,6 +66,12 @@ struct DeviceControlState {
   bool pumpOn = false;
   unsigned long pumpStopAtMs = 0;
   int pumpDurationMs = 5000;
+  bool autoPumpEnabled = false;
+  bool manualPumpControlEnabled = true;
+  int moistureThresholdPercent = 35;
+  int autoPumpDurationMs = 5000;
+  unsigned long pumpAutoCooldownUntilMs = 0;
+  unsigned long lastMoistureSampleMs = 0;
 
   int moistureRaw = 0;
   int moisturePercent = 0;
@@ -67,6 +80,10 @@ struct DeviceControlState {
   int ledR = 0;
   int ledG = 0;
   int ledB = 0;
+  int ledEffectMode = LED_EFFECT_STATIC;
+  int ledEffectSpeedMs = 1200;
+  unsigned long lastLedEffectTickMs = 0;
+  uint16_t ledEffectStep = 0;
 
   unsigned long lastButtonActionMs = 0;
   int testLightMode = 0; // 0=off, 1=white, 2=rgb
@@ -77,6 +94,28 @@ DeviceControlState deviceState;
 ButtonTracker buttonMore = {PIN_BTN_MORE, false, false, 0};
 ButtonTracker buttonLess = {PIN_BTN_LESS, false, false, 0};
 ButtonTracker buttonEnter = {PIN_BTN_ENTER, false, false, 0};
+
+const char* ledEffectModeToString(int mode) {
+  if (mode == LED_EFFECT_BLINK) return "blink";
+  if (mode == LED_EFFECT_BREATHE) return "breathe";
+  if (mode == LED_EFFECT_RAINBOW) return "rainbow";
+  return "static";
+}
+
+int parseLedEffectMode(const String& mode) {
+  if (mode == "static") return LED_EFFECT_STATIC;
+  if (mode == "blink") return LED_EFFECT_BLINK;
+  if (mode == "breathe" || mode == "breath") return LED_EFFECT_BREATHE;
+  if (mode == "rainbow") return LED_EFFECT_RAINBOW;
+  return -1;
+}
+
+void renderLedColor(uint8_t r, uint8_t g, uint8_t b) {
+  for (uint16_t i = 0; i < LED_STRIP_PIXELS; i++) {
+    ledStrip.setPixelColor(i, ledStrip.Color(r, g, b));
+  }
+  ledStrip.show();
+}
 
 String jsonEscape(const String& input) {
   String out;
@@ -200,16 +239,101 @@ void setLedStripState(bool on, int r, int g, int b) {
   uint8_t outG = on ? (uint8_t)deviceState.ledG : 0;
   uint8_t outB = on ? (uint8_t)deviceState.ledB : 0;
 
-  for (uint16_t i = 0; i < LED_STRIP_PIXELS; i++) {
-    ledStrip.setPixelColor(i, ledStrip.Color(outR, outG, outB));
+  renderLedColor(outR, outG, outB);
+}
+
+void setLedEffectMode(int mode, int speedMs) {
+  deviceState.ledEffectMode = mode;
+  deviceState.ledEffectSpeedMs = clampInt(speedMs, 120, 10000);
+  deviceState.lastLedEffectTickMs = 0;
+  deviceState.ledEffectStep = 0;
+}
+
+void updateLedEffects() {
+  if (!deviceState.ledStripOn) {
+    renderLedColor(0, 0, 0);
+    return;
   }
-  ledStrip.show();
+
+  if (deviceState.ledEffectMode == LED_EFFECT_STATIC) {
+    renderLedColor((uint8_t)deviceState.ledR, (uint8_t)deviceState.ledG, (uint8_t)deviceState.ledB);
+    return;
+  }
+
+  unsigned long nowMs = millis();
+  unsigned long frameMs = (unsigned long)clampInt(deviceState.ledEffectSpeedMs / 20, 16, 200);
+  if (nowMs - deviceState.lastLedEffectTickMs < frameMs) {
+    return;
+  }
+  deviceState.lastLedEffectTickMs = nowMs;
+  deviceState.ledEffectStep++;
+
+  if (deviceState.ledEffectMode == LED_EFFECT_BLINK) {
+    bool onFrame = ((deviceState.ledEffectStep / 10) % 2) == 0;
+    if (onFrame) {
+      renderLedColor((uint8_t)deviceState.ledR, (uint8_t)deviceState.ledG, (uint8_t)deviceState.ledB);
+    } else {
+      renderLedColor(0, 0, 0);
+    }
+    return;
+  }
+
+  if (deviceState.ledEffectMode == LED_EFFECT_BREATHE) {
+    int phase = deviceState.ledEffectStep % 200;
+    int wave = phase < 100 ? phase : (199 - phase);
+    uint8_t factor = (uint8_t)(wave * 255 / 99);
+    uint8_t r = (uint8_t)((deviceState.ledR * factor) / 255);
+    uint8_t g = (uint8_t)((deviceState.ledG * factor) / 255);
+    uint8_t b = (uint8_t)((deviceState.ledB * factor) / 255);
+    renderLedColor(r, g, b);
+    return;
+  }
+
+  if (deviceState.ledEffectMode == LED_EFFECT_RAINBOW) {
+    uint16_t hue = (uint16_t)(deviceState.ledEffectStep * 256);
+    uint32_t c = ledStrip.gamma32(ledStrip.ColorHSV(hue, 255, 255));
+    for (uint16_t i = 0; i < LED_STRIP_PIXELS; i++) {
+      ledStrip.setPixelColor(i, c);
+    }
+    ledStrip.show();
+  }
 }
 
 void refreshSensorValues() {
   int raw = analogRead(PIN_MOISTURE);
   deviceState.moistureRaw = clampInt(raw, 0, 1023);
   deviceState.moisturePercent = (int)((long)deviceState.moistureRaw * 100L / 1023L);
+  deviceState.lastMoistureSampleMs = millis();
+}
+
+void updateAutoPumpControl() {
+  unsigned long nowMs = millis();
+  if (nowMs - deviceState.lastMoistureSampleMs >= SENSOR_SAMPLE_INTERVAL_MS) {
+    refreshSensorValues();
+  }
+
+  if (!deviceState.autoPumpEnabled) {
+    return;
+  }
+
+  if (deviceState.pumpOn) {
+    return;
+  }
+
+  if (nowMs < deviceState.pumpAutoCooldownUntilMs) {
+    return;
+  }
+
+  if (deviceState.moisturePercent < deviceState.moistureThresholdPercent) {
+    startPumpForMs(deviceState.autoPumpDurationMs);
+    deviceState.pumpAutoCooldownUntilMs = millis() + AUTO_PUMP_COOLDOWN_MS;
+    Serial.print("[AUTO] Moisture below threshold, pump started. moisture=");
+    Serial.print(deviceState.moisturePercent);
+    Serial.print(" threshold=");
+    Serial.print(deviceState.moistureThresholdPercent);
+    Serial.print(" durationMs=");
+    Serial.println(deviceState.autoPumpDurationMs);
+  }
 }
 
 unsigned long getPumpRemainingMs() {
@@ -229,7 +353,11 @@ String buildControlJson() {
   j += "\"pump\":{";
   j += "\"on\":" + String(deviceState.pumpOn ? "true" : "false") + ",";
   j += "\"durationMs\":" + String(deviceState.pumpDurationMs) + ",";
-  j += "\"remainingMs\":" + String(remainingMs);
+  j += "\"remainingMs\":" + String(remainingMs) + ",";
+  j += "\"autoEnabled\":" + String(deviceState.autoPumpEnabled ? "true" : "false") + ",";
+  j += "\"manualEnabled\":" + String(deviceState.manualPumpControlEnabled ? "true" : "false") + ",";
+  j += "\"thresholdPercent\":" + String(deviceState.moistureThresholdPercent) + ",";
+  j += "\"autoDurationMs\":" + String(deviceState.autoPumpDurationMs);
   j += "},";
   j += "\"moisture\":{";
   j += "\"raw\":" + String(deviceState.moistureRaw) + ",";
@@ -244,7 +372,9 @@ String buildControlJson() {
   j += "\"on\":" + String(deviceState.ledStripOn ? "true" : "false") + ",";
   j += "\"r\":" + String(deviceState.ledR) + ",";
   j += "\"g\":" + String(deviceState.ledG) + ",";
-  j += "\"b\":" + String(deviceState.ledB);
+  j += "\"b\":" + String(deviceState.ledB) + ",";
+  j += "\"effect\":\"" + String(ledEffectModeToString(deviceState.ledEffectMode)) + "\",";
+  j += "\"effectSpeedMs\":" + String(deviceState.ledEffectSpeedMs);
   j += "}";
   j += "}";
   return j;
@@ -363,12 +493,18 @@ String buildStatusJson() {
   j += "\"pumpOn\":" + String(deviceState.pumpOn ? "true" : "false") + ",";
   j += "\"pumpDurationMs\":" + String(deviceState.pumpDurationMs) + ",";
   j += "\"pumpRemainingMs\":" + String(remainingMs) + ",";
+  j += "\"autoPumpEnabled\":" + String(deviceState.autoPumpEnabled ? "true" : "false") + ",";
+  j += "\"manualPumpControlEnabled\":" + String(deviceState.manualPumpControlEnabled ? "true" : "false") + ",";
+  j += "\"moistureThresholdPercent\":" + String(deviceState.moistureThresholdPercent) + ",";
+  j += "\"autoPumpDurationMs\":" + String(deviceState.autoPumpDurationMs) + ",";
   j += "\"moistureRaw\":" + String(deviceState.moistureRaw) + ",";
   j += "\"moisturePercent\":" + String(deviceState.moisturePercent) + ",";
   j += "\"ledStripOn\":" + String(deviceState.ledStripOn ? "true" : "false") + ",";
   j += "\"ledStripR\":" + String(deviceState.ledR) + ",";
   j += "\"ledStripG\":" + String(deviceState.ledG) + ",";
   j += "\"ledStripB\":" + String(deviceState.ledB) + ",";
+  j += "\"ledEffect\":\"" + String(ledEffectModeToString(deviceState.ledEffectMode)) + "\",";
+  j += "\"ledEffectSpeedMs\":" + String(deviceState.ledEffectSpeedMs) + ",";
   j += "\"testButtonSystemEnabled\":" + String(TEST_BUTTON_SYSTEM_ENABLED ? "true" : "false") + ",";
   j += "\"testLightMode\":" + String(deviceState.testLightMode) + ",";
   j += "\"uptimeMs\":" + String(millis()) + ",";
@@ -488,7 +624,35 @@ void handleGetSensors() {
   sendJson(200, buildControlJson());
 }
 
+void handleGetGardenSettings() {
+  String j = "{";
+  j += "\"ok\":true,";
+  j += "\"autoPumpEnabled\":" + String(deviceState.autoPumpEnabled ? "true" : "false") + ",";
+  j += "\"manualPumpControlEnabled\":" + String(deviceState.manualPumpControlEnabled ? "true" : "false") + ",";
+  j += "\"moistureThresholdPercent\":" + String(deviceState.moistureThresholdPercent) + ",";
+  j += "\"autoPumpDurationMs\":" + String(deviceState.autoPumpDurationMs) + ",";
+  j += "\"ledEffect\":\"" + String(ledEffectModeToString(deviceState.ledEffectMode)) + "\",";
+  j += "\"ledEffectSpeedMs\":" + String(deviceState.ledEffectSpeedMs);
+  j += "}";
+  sendJson(200, j);
+}
+
+void handlePostGardenSettings() {
+  String body = server.arg("plain");
+  deviceState.autoPumpEnabled = extractJsonBool(body, "autoPumpEnabled", deviceState.autoPumpEnabled);
+  deviceState.manualPumpControlEnabled = extractJsonBool(body, "manualPumpControlEnabled", deviceState.manualPumpControlEnabled);
+  deviceState.moistureThresholdPercent = clampInt(extractJsonInt(body, "moistureThresholdPercent", deviceState.moistureThresholdPercent), 0, 100);
+  deviceState.autoPumpDurationMs = clampInt(extractJsonInt(body, "autoPumpDurationMs", deviceState.autoPumpDurationMs), PUMP_DURATION_MIN_MS, PUMP_DURATION_MAX_MS);
+  state.lastUpdateMs = millis();
+  sendJson(200, "{\"ok\":true,\"message\":\"ok\",\"autoPumpEnabled\":" + String(deviceState.autoPumpEnabled ? "true" : "false") + ",\"manualPumpControlEnabled\":" + String(deviceState.manualPumpControlEnabled ? "true" : "false") + ",\"moistureThresholdPercent\":" + String(deviceState.moistureThresholdPercent) + ",\"autoPumpDurationMs\":" + String(deviceState.autoPumpDurationMs) + "}");
+}
+
 void handlePostPump() {
+  if (!deviceState.manualPumpControlEnabled) {
+    sendJson(403, "{\"ok\":false,\"message\":\"manual control disabled\"}");
+    return;
+  }
+
   String body = server.arg("plain");
   String action = extractJsonString(body, "action", "");
   bool on = extractJsonBool(body, "on", false);
@@ -524,10 +688,34 @@ void handlePostLed() {
   int g = clampInt(extractJsonInt(body, "g", deviceState.ledG), 0, 255);
   int b = clampInt(extractJsonInt(body, "b", deviceState.ledB), 0, 255);
 
+  setLedEffectMode(LED_EFFECT_STATIC, deviceState.ledEffectSpeedMs);
   setLedStripState(on, r, g, b);
   state.lastUpdateMs = millis();
 
   sendJson(200, "{\"ok\":true,\"message\":\"ok\",\"ledStripOn\":" + String(deviceState.ledStripOn ? "true" : "false") + ",\"r\":" + String(deviceState.ledR) + ",\"g\":" + String(deviceState.ledG) + ",\"b\":" + String(deviceState.ledB) + "}");
+}
+
+void handlePostLedEffect() {
+  String body = server.arg("plain");
+  String modeText = extractJsonString(body, "effect", String(ledEffectModeToString(deviceState.ledEffectMode)));
+  int parsedMode = parseLedEffectMode(modeText);
+  if (parsedMode < 0) {
+    sendJson(400, "{\"ok\":false,\"message\":\"invalid effect\"}");
+    return;
+  }
+
+  int speedMs = clampInt(extractJsonInt(body, "effectSpeedMs", deviceState.ledEffectSpeedMs), 120, 10000);
+  bool on = extractJsonBool(body, "on", deviceState.ledStripOn);
+  int r = clampInt(extractJsonInt(body, "r", deviceState.ledR), 0, 255);
+  int g = clampInt(extractJsonInt(body, "g", deviceState.ledG), 0, 255);
+  int b = clampInt(extractJsonInt(body, "b", deviceState.ledB), 0, 255);
+
+  setLedStripState(on, r, g, b);
+  setLedEffectMode(parsedMode, speedMs);
+  updateLedEffects();
+  state.lastUpdateMs = millis();
+
+  sendJson(200, "{\"ok\":true,\"message\":\"ok\",\"ledStripOn\":" + String(deviceState.ledStripOn ? "true" : "false") + ",\"effect\":\"" + String(ledEffectModeToString(deviceState.ledEffectMode)) + "\",\"effectSpeedMs\":" + String(deviceState.ledEffectSpeedMs) + ",\"r\":" + String(deviceState.ledR) + ",\"g\":" + String(deviceState.ledG) + ",\"b\":" + String(deviceState.ledB) + "}");
 }
 
 void handlePostDuration() {
@@ -604,7 +792,9 @@ void setupRoutes() {
   server.on("/api/sensors", HTTP_OPTIONS, handleOptions);
   server.on("/api/pump", HTTP_OPTIONS, handleOptions);
   server.on("/api/led", HTTP_OPTIONS, handleOptions);
+  server.on("/api/led/effect", HTTP_OPTIONS, handleOptions);
   server.on("/api/pump-duration", HTTP_OPTIONS, handleOptions);
+  server.on("/api/garden/settings", HTTP_OPTIONS, handleOptions);
 
   server.on("/api/time", HTTP_GET, handleGetTime);
   server.on("/api/time", HTTP_POST, handlePostTime);
@@ -614,10 +804,13 @@ void setupRoutes() {
   server.on("/api/status", HTTP_GET, handleGetStatus);
   server.on("/status", HTTP_GET, handleGetStatus);
   server.on("/api/sensors", HTTP_GET, handleGetSensors);
+  server.on("/api/garden/settings", HTTP_GET, handleGetGardenSettings);
 
   server.on("/api/pump", HTTP_POST, handlePostPump);
   server.on("/api/led", HTTP_POST, handlePostLed);
+  server.on("/api/led/effect", HTTP_POST, handlePostLedEffect);
   server.on("/api/pump-duration", HTTP_POST, handlePostDuration);
+  server.on("/api/garden/settings", HTTP_POST, handlePostGardenSettings);
 
   server.on("/generate_204", HTTP_GET, handleCaptiveRedirect);
   server.on("/gen_204", HTTP_GET, handleCaptiveRedirect);
@@ -677,10 +870,14 @@ void loop() {
     handleButtonActions();
   }
 
+  updateAutoPumpControl();
+
   if (deviceState.pumpOn && deviceState.pumpStopAtMs != 0 && millis() >= deviceState.pumpStopAtMs) {
     setPumpState(false);
     state.lastUpdateMs = millis();
   }
+
+  updateLedEffects();
 
   server.handleClient();
 

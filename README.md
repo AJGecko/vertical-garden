@@ -3,4 +3,4 @@
 
 > Hinweis: Dieses Projekt ist für einen zdi-Ferienkurs. (Deutschland, 2026)
 
-* Nicht fertig!
+

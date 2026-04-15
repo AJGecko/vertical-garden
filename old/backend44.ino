@@ -2,13 +2,16 @@ enum LedEffect {
   LED_EFFECT_STATIC,
   LED_EFFECT_BLINK,
   LED_EFFECT_BREATHE,
-  LED_EFFECT_RAINBOW
+  LED_EFFECT_RAINBOW,
+  LED_EFFECT_WAVES
 };
 
 // Strikte FastLED Timing-Vorgaben für ESP8266 OHNE Retry.
 // Retries verursachen auf dem ESP8266 ein massives visuelles Flackern.
-#define FASTLED_ALLOW_INTERRUPTS 0 
-#define FASTLED_INTERRUPT_RETRY_COUNT 0
+#define FASTLED_ALLOW_INTERRUPTS 1
+#define FASTLED_INTERRUPT_RETRY_COUNT 3
+#define INTERRUPT_THRESHOLD 1
+#define INTERRUPT_THRESHOLD 1
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -18,6 +21,25 @@ enum LedEffect {
 #include <FastLED.h>
 #include <ArduinoJson.h>
 #include <LittleFS.h>
+
+// Forward declarations to prevent Arduino builder issues with custom types
+void handleOptions(AsyncWebServerRequest *request);
+void handleApiStatusLike(AsyncWebServerRequest *request);
+void handleRoot(AsyncWebServerRequest *request);
+void handleApiSettingsPost(AsyncWebServerRequest *request);
+void handleApiTimePost(AsyncWebServerRequest *request);
+void handleApiPumpPost(AsyncWebServerRequest *request);
+void handleApiPumpDurationPost(AsyncWebServerRequest *request);
+void handleApiLedPost(AsyncWebServerRequest *request);
+void handleApiLedEffectPost(AsyncWebServerRequest *request);
+void handleGardenSettingsGet(AsyncWebServerRequest *request);
+void handleGardenSettingsPost(AsyncWebServerRequest *request);
+void handleNotFound(AsyncWebServerRequest *request);
+void handleConnectivityProbe(AsyncWebServerRequest *request);
+void sendJsonAsync(AsyncWebServerRequest *request, int statusCode, JsonDocument& doc);
+void sendErrorJsonAsync(AsyncWebServerRequest *request, int statusCode, const String& message);
+void addCorsHeaders(AsyncWebServerResponse *response);
+
 
 const char* CONFIG_FILE = "/config.json";
 bool pendingConfigSave = false;
@@ -40,7 +62,7 @@ const uint8_t PIN_MOISTURE = A0;
 const uint8_t PIN_BUTTON_PUMP = D5;
 const uint8_t PIN_BUTTON_LED = D6;
 const uint8_t PIN_BUTTON_EFFECT = D7;
-const uint8_t PIN_LED_STRIP = D1;
+#define PIN_LED_STRIP D1
 
 const bool PUMP_ACTIVE_HIGH = true;
 const uint16_t HTTP_PORT = 80;
@@ -48,7 +70,7 @@ const uint16_t LED_COUNT = 18;
 const uint8_t LED_GLOBAL_BRIGHTNESS = 48;
 const size_t JSON_TX_BUFFER_SIZE = 2048;
 const byte DNS_PORT = 53;
-const bool ENABLE_CAPTIVE_DNS = false;
+const bool ENABLE_CAPTIVE_DNS = true;
 const bool ENABLE_STA = false;
 const uint32_t SERIAL_BAUD = 115200;
 const uint32_t RUNTIME_LOG_INTERVAL_MS = 10000;
@@ -74,7 +96,7 @@ const bool ENABLE_HTTP_STALL_RECOVERY = false;
 
 const uint16_t BUTTON_DEBOUNCE_MS = 40;
 const uint16_t SENSOR_SAMPLE_INTERVAL_MS = 1000;
-const uint16_t LED_FRAME_INTERVAL_MS = 20;
+const uint16_t LED_FRAME_INTERVAL_MS = 80;
 const uint16_t LED_SHOW_MIN_INTERVAL_US = 350;
 const uint16_t LED_KEEPALIVE_INTERVAL_MS = 1200;
 const uint16_t STATION_COUNT_CACHE_INTERVAL_MS = 500;
@@ -246,6 +268,8 @@ int parseIntFlexible(JsonVariantConst value, int fallback) {
   if (value.isNull()) return fallback;
   if (value.is<int>()) return value.as<int>();
   if (value.is<long>()) return (int)value.as<long>();
+  if (value.is<unsigned int>()) return (int)value.as<unsigned int>();
+  if (value.is<unsigned long>()) return (int)value.as<unsigned long>();
   if (value.is<float>()) return (int)value.as<float>();
   if (value.is<const char*>()) return atoi(value.as<const char*>());
   return fallback;
@@ -259,6 +283,8 @@ String parseStringFlexible(JsonVariantConst value, const String& fallback) {
   if (value.isNull()) return fallback;
   if (value.is<const char*>()) return String(value.as<const char*>());
   if (value.is<String>()) return value.as<String>();
+  const char* strp = value.as<const char*>();
+  if (strp) return String(strp);
   return fallback;
 }
 
@@ -383,6 +409,7 @@ LedEffect parseEffect(const String& effectName) {
   if (normalized == "blink") return LED_EFFECT_BLINK;
   if (normalized == "breathe") return LED_EFFECT_BREATHE;
   if (normalized == "rainbow") return LED_EFFECT_RAINBOW;
+  if (normalized == "waves") return LED_EFFECT_WAVES;
   return LED_EFFECT_STATIC;
 }
 
@@ -394,6 +421,8 @@ const char* effectToString(LedEffect effect) {
       return "breathe";
     case LED_EFFECT_RAINBOW:
       return "rainbow";
+    case LED_EFFECT_WAVES:
+      return "waves";
     case LED_EFFECT_STATIC:
     default:
       return "static";
@@ -405,23 +434,27 @@ void maintainDnsState() {
   if (!dnsStarted && isApHealthy()) {
     dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
     dnsStarted = true;
-    Serial.println("DNS restored");
+    Serial.println("DNS Server started");
   }
 }
 
 void handleButtonPress(uint8_t index) {
+  Serial.print("Button pressed: ");
+  Serial.println(index);
   if (index == 0) {
     if (pumpState.on) stopPump(); else startPump(pumpState.durationMs, false);
     return;
   }
   if (index == 1) {
     ledState.userOn = !ledState.userOn;
+    ledState.scheduleEnabled = false;
     invalidateStatusCache();
     requestConfigSave();
     return;
   }
   if (index == 2) {
     ledState.userOn = true;
+    ledState.scheduleEnabled = false;
     cycleLedEffect();
     invalidateStatusCache();
     requestConfigSave();
@@ -446,8 +479,7 @@ void pollButtons() {
     if (reading != buttons[i].lastReading) {
       buttons[i].lastReading = reading;
       buttons[i].changedAtMs = now;
-    }
-    if ((uint32_t)(now - buttons[i].changedAtMs) >= BUTTON_DEBOUNCE_MS && reading != buttons[i].stableState) {
+    } else if ((uint32_t)(now - buttons[i].changedAtMs) >= BUTTON_DEBOUNCE_MS && reading != buttons[i].stableState) {
       buttons[i].stableState = reading;
       if (buttons[i].stableState == LOW) {
         handleButtonPress(i);
@@ -506,7 +538,7 @@ bool isWithinScheduleWindow(uint16_t nowMinute, uint16_t onMinute, uint16_t offM
   return nowMinute >= onMinute || nowMinute < offMinute;
 }
 
-CRGB wheelColor(uint8_t wheelPos, uint8_t brightnessPercent = 100) {
+CRGB wheelColor(uint8_t wheelPos, uint8_t brightnessPercent) {
   wheelPos = 255 - wheelPos;
   uint8_t r, g, b;
   if (wheelPos < 85) {
@@ -539,8 +571,6 @@ void fillStrip(uint8_t r, uint8_t g, uint8_t b) {
 }
 
 void showStripSafely() {
-  yield(); 
-  
   uint32_t nowUs = micros();
   uint32_t elapsedUs = (uint32_t)(nowUs - lastLedShowUs);
   if (elapsedUs < LED_SHOW_MIN_INTERVAL_US) {
@@ -561,26 +591,12 @@ void rememberSolidFrame(bool on, LedEffect effect, uint8_t r, uint8_t g, uint8_t
 }
 
 void clearStripIfNeeded() {
-  bool offFrameIsCurrent = ledOutputInitialized && !lastRenderedOn;
-  if (offFrameIsCurrent && !elapsedSince(lastLedRefreshMs, LED_KEEPALIVE_INTERVAL_MS)) {
-    return;
-  }
   fillStrip(0, 0, 0);
   showStripSafely();
   rememberSolidFrame(false, LED_EFFECT_STATIC, 0, 0, 0);
 }
 
 void applySolidIfChanged(LedEffect effect, uint8_t r, uint8_t g, uint8_t b) {
-  bool unchanged =
-    ledOutputInitialized &&
-    lastRenderedOn &&
-    lastRenderedEffect == effect &&
-    lastRenderedR == r &&
-    lastRenderedG == g &&
-    lastRenderedB == b;
-  if (unchanged && !elapsedSince(lastLedRefreshMs, LED_KEEPALIVE_INTERVAL_MS)) {
-    return;
-  }
   fillStrip(r, g, b);
   showStripSafely();
   rememberSolidFrame(true, effect, r, g, b);
@@ -594,13 +610,9 @@ void renderLedEffect() {
   
   uint32_t realNow = millis();
   if (!elapsedSince(lastLedFrameMs, LED_FRAME_INTERVAL_MS)) return;
-  
-  uint32_t dt = realNow - lastLedFrameMs;
   lastLedFrameMs = realNow;
-  if (dt > 30) dt = 30; 
   
-  static uint32_t animTimeMs = 0;
-  animTimeMs += dt;
+  uint32_t animTimeMs = realNow;
 
   bool shouldBeOn = ledState.userOn;
   if (ledState.scheduleEnabled && clockState.synced) {
@@ -612,9 +624,9 @@ void renderLedEffect() {
     return;
   }
   uint32_t speedMs = clampU32(ledState.effectSpeedMs, 120, 10000);
-  uint8_t frameR = ledState.r;
-  uint8_t frameG = ledState.g;
-  uint8_t frameB = ledState.b;
+  uint8_t frameR = scaleByBrightness(ledState.r, ledState.brightnessPercent);
+  uint8_t frameG = scaleByBrightness(ledState.g, ledState.brightnessPercent);
+  uint8_t frameB = scaleByBrightness(ledState.b, ledState.brightnessPercent);
   switch (ledState.effect) {
     case LED_EFFECT_BLINK: {
       uint32_t halfCycle = speedMs / 2;
@@ -625,14 +637,30 @@ void renderLedEffect() {
         frameG = 0;
         frameB = 0;
       }
-      break;
+      applySolidIfChanged(LED_EFFECT_BLINK, frameR, frameG, frameB);
+      return;
     }
     case LED_EFFECT_BREATHE: {
       uint8_t wave8 = breatheWave8(animTimeMs, speedMs);
-      frameR = (uint8_t)(((uint16_t)ledState.r * wave8) / 255U);
-      frameG = (uint8_t)(((uint16_t)ledState.g * wave8) / 255U);
-      frameB = (uint8_t)(((uint16_t)ledState.b * wave8) / 255U);
-      break;
+      frameR = (uint8_t)(((uint16_t)frameR * wave8) / 255U);
+      frameG = (uint8_t)(((uint16_t)frameG * wave8) / 255U);
+      frameB = (uint8_t)(((uint16_t)frameB * wave8) / 255U);
+      applySolidIfChanged(LED_EFFECT_BREATHE, frameR, frameG, frameB);
+      return;
+    }
+    case LED_EFFECT_WAVES: {
+      uint32_t speedMsSafe = speedMs > 0 ? speedMs : 1;
+      uint32_t basePhase = (animTimeMs * 256UL) / speedMsSafe;
+      for (uint16_t i = 0; i < LED_COUNT; i++) {
+        uint8_t ledPhase = (uint8_t)(basePhase + (i * 256 / LED_COUNT));
+        uint8_t wave8 = sin8(ledPhase);
+        leds[i].r = (uint8_t)(((uint16_t)frameR * wave8) / 255U);
+        leds[i].g = (uint8_t)(((uint16_t)frameG * wave8) / 255U);
+        leds[i].b = (uint8_t)(((uint16_t)frameB * wave8) / 255U);
+      }
+      showStripSafely();
+      rememberSolidFrame(true, LED_EFFECT_WAVES, 0, 0, 0);
+      return;
     }
     case LED_EFFECT_RAINBOW: {
       uint32_t base = (animTimeMs * 256UL) / speedMs;
@@ -660,6 +688,9 @@ void cycleLedEffect() {
       ledState.effect = LED_EFFECT_BREATHE;
       break;
     case LED_EFFECT_BREATHE:
+      ledState.effect = LED_EFFECT_WAVES;
+      break;
+    case LED_EFFECT_WAVES:
       ledState.effect = LED_EFFECT_RAINBOW;
       break;
     case LED_EFFECT_RAINBOW:
@@ -749,6 +780,7 @@ void buildStatusJson(JsonDocument& doc) {
   led["r"] = ledState.r;
   led["g"] = ledState.g;
   led["b"] = ledState.b;
+  led["brightnessPercent"] = ledState.brightnessPercent;
   led["effect"] = effectName;
   led["effectSpeedMs"] = ledState.effectSpeedMs;
   led["scheduleEnabled"] = ledState.scheduleEnabled;
@@ -768,8 +800,12 @@ void buildStatusJson(JsonDocument& doc) {
   doc["ledStripR"] = ledState.r;
   doc["ledStripG"] = ledState.g;
   doc["ledStripB"] = ledState.b;
+  doc["ledStripBrightnessPercent"] = ledState.brightnessPercent;
   doc["ledEffect"] = effectName;
   doc["ledEffectSpeedMs"] = ledState.effectSpeedMs;
+  doc["lightScheduleEnabled"] = ledState.scheduleEnabled;
+  doc["lightOnMinute"] = ledState.onMinute;
+  doc["lightOffMinute"] = ledState.offMinute;
 }
 
 void refreshStatusCacheIfNeeded() {
@@ -811,18 +847,13 @@ void handleRoot(AsyncWebServerRequest *request) {
   request->send(response);
 }
 
-void handleApiSettingsPost(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-  if (index == 0) {
-    jsonBodyBuffer = "";
-  }
-  jsonBodyBuffer += String((char*)data).substring(0, len);
-  
-  if (index + len == total) {
+void handleApiSettingsPost(AsyncWebServerRequest *request) {
     httpRequestCount++;
     lastHttpRequestMs = millis();
     
     StaticJsonDocument<768> body;
-    if (!parseJsonBodyAsync(jsonBodyBuffer, body)) {
+    String* bodyStr = (String*)request->_tempObject;
+    if (!bodyStr || !parseJsonBodyAsync(*bodyStr, body)) {
       sendErrorJsonAsync(request, 400, "Invalid JSON body.");
       return;
     }
@@ -840,21 +871,15 @@ void handleApiSettingsPost(AsyncWebServerRequest *request, uint8_t *data, size_t
     response["liveRateEnabled"] = settings.liveRateEnabled;
     response["liveIntervalMs"] = settings.liveIntervalMs;
     sendJsonAsync(request, 200, response);
-  }
 }
 
-void handleApiTimePost(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-  if (index == 0) {
-    jsonBodyBuffer = "";
-  }
-  jsonBodyBuffer += String((char*)data).substring(0, len);
-  
-  if (index + len == total) {
+void handleApiTimePost(AsyncWebServerRequest *request) {
     httpRequestCount++;
     lastHttpRequestMs = millis();
     
     StaticJsonDocument<768> body;
-    if (!parseJsonBodyAsync(jsonBodyBuffer, body)) {
+    String* bodyStr = (String*)request->_tempObject;
+    if (!bodyStr || !parseJsonBodyAsync(*bodyStr, body)) {
       sendErrorJsonAsync(request, 400, "Invalid JSON body.");
       return;
     }
@@ -887,21 +912,15 @@ void handleApiTimePost(AsyncWebServerRequest *request, uint8_t *data, size_t len
     writeLocalTimeIso(localTimeBuf, sizeof(localTimeBuf));
     response["localTime"] = localTimeBuf;
     sendJsonAsync(request, 200, response);
-  }
 }
 
-void handleApiPumpPost(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-  if (index == 0) {
-    jsonBodyBuffer = "";
-  }
-  jsonBodyBuffer += String((char*)data).substring(0, len);
-  
-  if (index + len == total) {
+void handleApiPumpPost(AsyncWebServerRequest *request) {
     httpRequestCount++;
     lastHttpRequestMs = millis();
     
     StaticJsonDocument<768> body;
-    if (!parseJsonBodyAsync(jsonBodyBuffer, body)) {
+    String* bodyStr = (String*)request->_tempObject;
+    if (!bodyStr || !parseJsonBodyAsync(*bodyStr, body)) {
       sendErrorJsonAsync(request, 400, "Invalid JSON body.");
       return;
     }
@@ -922,21 +941,15 @@ void handleApiPumpPost(AsyncWebServerRequest *request, uint8_t *data, size_t len
     response["pumpOn"] = pumpState.on;
     response["remainingMs"] = pumpState.on ? ((millis() >= pumpState.endAtMs) ? 0 : pumpState.endAtMs - millis()) : 0;
     sendJsonAsync(request, 200, response);
-  }
 }
 
-void handleApiPumpDurationPost(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-  if (index == 0) {
-    jsonBodyBuffer = "";
-  }
-  jsonBodyBuffer += String((char*)data).substring(0, len);
-  
-  if (index + len == total) {
+void handleApiPumpDurationPost(AsyncWebServerRequest *request) {
     httpRequestCount++;
     lastHttpRequestMs = millis();
     
     StaticJsonDocument<512> body;
-    if (!parseJsonBodyAsync(jsonBodyBuffer, body)) {
+    String* bodyStr = (String*)request->_tempObject;
+    if (!bodyStr || !parseJsonBodyAsync(*bodyStr, body)) {
       sendErrorJsonAsync(request, 400, "Invalid JSON body.");
       return;
     }
@@ -947,21 +960,15 @@ void handleApiPumpDurationPost(AsyncWebServerRequest *request, uint8_t *data, si
     response["ok"] = true;
     response["pumpDurationMs"] = pumpState.durationMs;
     sendJsonAsync(request, 200, response);
-  }
 }
 
-void handleApiLedPost(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-  if (index == 0) {
-    jsonBodyBuffer = "";
-  }
-  jsonBodyBuffer += String((char*)data).substring(0, len);
-  
-  if (index + len == total) {
+void handleApiLedPost(AsyncWebServerRequest *request) {
     httpRequestCount++;
     lastHttpRequestMs = millis();
     
     StaticJsonDocument<768> body;
-    if (!parseJsonBodyAsync(jsonBodyBuffer, body)) {
+    String* bodyStr = (String*)request->_tempObject;
+    if (!bodyStr || !parseJsonBodyAsync(*bodyStr, body)) {
       sendErrorJsonAsync(request, 400, "Invalid JSON body.");
       return;
     }
@@ -969,19 +976,19 @@ void handleApiLedPost(AsyncWebServerRequest *request, uint8_t *data, size_t len,
     uint8_t requestedR = (uint8_t)clampI32(parseIntFlexible(body["r"], ledState.r), 0, 255);
     uint8_t requestedG = (uint8_t)clampI32(parseIntFlexible(body["g"], ledState.g), 0, 255);
     uint8_t requestedB = (uint8_t)clampI32(parseIntFlexible(body["b"], ledState.b), 0, 255);
-    uint8_t brightnessPercent = (uint8_t)clampI32(parseIntFlexible(body["brightnessPercent"], 100), 0, 100);
+    uint8_t brightnessPercent = (uint8_t)clampI32(parseIntFlexible(body["brightnessPercent"], ledState.brightnessPercent), 0, 100);
 
     ledState.userOn = requestedOn;
+    ledState.scheduleEnabled = false;
     ledState.brightnessPercent = brightnessPercent;
-    if (requestedOn && brightnessPercent > 0 && requestedR == 0 && requestedG == 0 && requestedB == 0) {
-      uint8_t neutral = (uint8_t)((255U * brightnessPercent) / 100U);
-      ledState.r = neutral;
-      ledState.g = neutral;
-      ledState.b = neutral;
+    if (requestedOn && requestedR == 0 && requestedG == 0 && requestedB == 0) {
+      ledState.r = 255;
+      ledState.g = 255;
+      ledState.b = 255;
     } else {
-      ledState.r = scaleByBrightness(requestedR, brightnessPercent);
-      ledState.g = scaleByBrightness(requestedG, brightnessPercent);
-      ledState.b = scaleByBrightness(requestedB, brightnessPercent);
+      ledState.r = requestedR;
+      ledState.g = requestedG;
+      ledState.b = requestedB;
     }
 
     invalidateStatusCache();
@@ -994,21 +1001,15 @@ void handleApiLedPost(AsyncWebServerRequest *request, uint8_t *data, size_t len,
     response["b"] = ledState.b;
     response["brightnessPercent"] = brightnessPercent;
     sendJsonAsync(request, 200, response);
-  }
 }
 
-void handleApiLedEffectPost(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-  if (index == 0) {
-    jsonBodyBuffer = "";
-  }
-  jsonBodyBuffer += String((char*)data).substring(0, len);
-  
-  if (index + len == total) {
+void handleApiLedEffectPost(AsyncWebServerRequest *request) {
     httpRequestCount++;
     lastHttpRequestMs = millis();
     
     StaticJsonDocument<768> body;
-    if (!parseJsonBodyAsync(jsonBodyBuffer, body)) {
+    String* bodyStr = (String*)request->_tempObject;
+    if (!bodyStr || !parseJsonBodyAsync(*bodyStr, body)) {
       sendErrorJsonAsync(request, 400, "Invalid JSON body.");
       return;
     }
@@ -1016,23 +1017,28 @@ void handleApiLedEffectPost(AsyncWebServerRequest *request, uint8_t *data, size_
     uint8_t requestedR = (uint8_t)clampI32(parseIntFlexible(body["r"], ledState.r), 0, 255);
     uint8_t requestedG = (uint8_t)clampI32(parseIntFlexible(body["g"], ledState.g), 0, 255);
     uint8_t requestedB = (uint8_t)clampI32(parseIntFlexible(body["b"], ledState.b), 0, 255);
-    uint8_t brightnessPercent = (uint8_t)clampI32(parseIntFlexible(body["brightnessPercent"], 100), 0, 100);
+    uint8_t brightnessPercent = (uint8_t)clampI32(parseIntFlexible(body["brightnessPercent"], ledState.brightnessPercent), 0, 100);
 
     ledState.userOn = requestedOn;
+    ledState.scheduleEnabled = false;
     ledState.brightnessPercent = brightnessPercent;
-    if (requestedOn && brightnessPercent > 0 && requestedR == 0 && requestedG == 0 && requestedB == 0) {
-      uint8_t neutral = (uint8_t)((255U * brightnessPercent) / 100U);
-      ledState.r = neutral;
-      ledState.g = neutral;
-      ledState.b = neutral;
+    if (requestedOn && requestedR == 0 && requestedG == 0 && requestedB == 0) {
+      ledState.r = 255;
+      ledState.g = 255;
+      ledState.b = 255;
     } else {
-      ledState.r = scaleByBrightness(requestedR, brightnessPercent);
-      ledState.g = scaleByBrightness(requestedG, brightnessPercent);
-      ledState.b = scaleByBrightness(requestedB, brightnessPercent);
+      ledState.r = requestedR;
+      ledState.g = requestedG;
+      ledState.b = requestedB;
     }
 
-    ledState.effect = parseEffect(parseStringFlexible(body["effect"], effectToString(ledState.effect)));
-    ledState.effectSpeedMs = clampU32((uint32_t)parseIntFlexible(body["effectSpeedMs"], ledState.effectSpeedMs), 120, 10000);
+    if (body.containsKey("effect")) {
+      ledState.effect = parseEffect(parseStringFlexible(body["effect"], effectToString(ledState.effect)));
+    }
+    if (body.containsKey("effectSpeedMs")) {
+      ledState.effectSpeedMs = clampU32((uint32_t)parseIntFlexible(body["effectSpeedMs"], ledState.effectSpeedMs), 120, 10000);
+    }
+
     invalidateStatusCache();
     requestConfigSave();
     StaticJsonDocument<384> response;
@@ -1045,7 +1051,6 @@ void handleApiLedEffectPost(AsyncWebServerRequest *request, uint8_t *data, size_
     response["effect"] = effectToString(ledState.effect);
     response["effectSpeedMs"] = ledState.effectSpeedMs;
     sendJsonAsync(request, 200, response);
-  }
 }
 
 void handleGardenSettingsGet(AsyncWebServerRequest *request) {
@@ -1066,18 +1071,13 @@ void handleGardenSettingsGet(AsyncWebServerRequest *request) {
   sendJsonAsync(request, 200, doc);
 }
 
-void handleGardenSettingsPost(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-  if (index == 0) {
-    jsonBodyBuffer = "";
-  }
-  jsonBodyBuffer += String((char*)data).substring(0, len);
-  
-  if (index + len == total) {
+void handleGardenSettingsPost(AsyncWebServerRequest *request) {
     httpRequestCount++;
     lastHttpRequestMs = millis();
     
     StaticJsonDocument<768> body;
-    if (!parseJsonBodyAsync(jsonBodyBuffer, body)) {
+    String* bodyStr = (String*)request->_tempObject;
+    if (!bodyStr || !parseJsonBodyAsync(*bodyStr, body)) {
       sendErrorJsonAsync(request, 400, "Invalid JSON body.");
       return;
     }
@@ -1113,7 +1113,6 @@ void handleGardenSettingsPost(AsyncWebServerRequest *request, uint8_t *data, siz
     response["ledEffect"] = effectToString(ledState.effect);
     response["ledEffectSpeedMs"] = ledState.effectSpeedMs;
     sendJsonAsync(request, 200, response);
-  }
 }
 
 void handleNotFound(AsyncWebServerRequest *request) {
@@ -1519,39 +1518,130 @@ void setupRoutes() {
   server.on("/api/sensors", HTTP_OPTIONS, handleOptions);
   
   server.on("/api/time", HTTP_GET, handleApiStatusLike);
-  server.on("/api/time", HTTP_POST, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-    handleApiTimePost(request, data, len, index, total);
+      server.on("/api/time", HTTP_POST, [](AsyncWebServerRequest *request) {
+    // do nothing, wait for body
+  }, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        if (index == 0) {
+      if (request->_tempObject) { delete (String*)request->_tempObject; request->_tempObject = NULL; }
+      String* s = new String();
+      s->reserve(total);
+      request->_tempObject = s;
+    }
+    String* s = (String*)request->_tempObject;
+    if (s) { for (size_t i = 0; i < len; i++) *s += (char)data[i]; }
+    if (index + len == total) {
+      handleApiTimePost(request);
+      if (request->_tempObject) { delete (String*)request->_tempObject; request->_tempObject = NULL; }
+    }
   });
   server.on("/api/time", HTTP_OPTIONS, handleOptions);
   
-  server.on("/api/settings", HTTP_POST, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-    handleApiSettingsPost(request, data, len, index, total);
+      server.on("/api/settings", HTTP_POST, [](AsyncWebServerRequest *request) {
+    // do nothing, wait for body
+  }, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        if (index == 0) {
+      if (request->_tempObject) { delete (String*)request->_tempObject; request->_tempObject = NULL; }
+      String* s = new String();
+      s->reserve(total);
+      request->_tempObject = s;
+    }
+    String* s = (String*)request->_tempObject;
+    if (s) { for (size_t i = 0; i < len; i++) *s += (char)data[i]; }
+    if (index + len == total) {
+      handleApiSettingsPost(request);
+      if (request->_tempObject) { delete (String*)request->_tempObject; request->_tempObject = NULL; }
+    }
   });
   server.on("/api/settings", HTTP_OPTIONS, handleOptions);
   
-  server.on("/api/pump", HTTP_POST, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-    handleApiPumpPost(request, data, len, index, total);
+      server.on("/api/pump", HTTP_POST, [](AsyncWebServerRequest *request) {
+    // do nothing, wait for body
+  }, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        if (index == 0) {
+      if (request->_tempObject) { delete (String*)request->_tempObject; request->_tempObject = NULL; }
+      String* s = new String();
+      s->reserve(total);
+      request->_tempObject = s;
+    }
+    String* s = (String*)request->_tempObject;
+    if (s) { for (size_t i = 0; i < len; i++) *s += (char)data[i]; }
+    if (index + len == total) {
+      handleApiPumpPost(request);
+      if (request->_tempObject) { delete (String*)request->_tempObject; request->_tempObject = NULL; }
+    }
   });
   server.on("/api/pump", HTTP_OPTIONS, handleOptions);
   
-  server.on("/api/pump-duration", HTTP_POST, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-    handleApiPumpDurationPost(request, data, len, index, total);
+      server.on("/api/pump-duration", HTTP_POST, [](AsyncWebServerRequest *request) {
+    // do nothing, wait for body
+  }, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        if (index == 0) {
+      if (request->_tempObject) { delete (String*)request->_tempObject; request->_tempObject = NULL; }
+      String* s = new String();
+      s->reserve(total);
+      request->_tempObject = s;
+    }
+    String* s = (String*)request->_tempObject;
+    if (s) { for (size_t i = 0; i < len; i++) *s += (char)data[i]; }
+    if (index + len == total) {
+      handleApiPumpDurationPost(request);
+      if (request->_tempObject) { delete (String*)request->_tempObject; request->_tempObject = NULL; }
+    }
   });
   server.on("/api/pump-duration", HTTP_OPTIONS, handleOptions);
   
-  server.on("/api/led", HTTP_POST, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-    handleApiLedPost(request, data, len, index, total);
+      server.on("/api/led", HTTP_POST, [](AsyncWebServerRequest *request) {
+    // do nothing, wait for body
+  }, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        if (index == 0) {
+      if (request->_tempObject) { delete (String*)request->_tempObject; request->_tempObject = NULL; }
+      String* s = new String();
+      s->reserve(total);
+      request->_tempObject = s;
+    }
+    String* s = (String*)request->_tempObject;
+    if (s) { for (size_t i = 0; i < len; i++) *s += (char)data[i]; }
+    if (index + len == total) {
+      handleApiLedPost(request);
+      if (request->_tempObject) { delete (String*)request->_tempObject; request->_tempObject = NULL; }
+    }
   });
   server.on("/api/led", HTTP_OPTIONS, handleOptions);
   
-  server.on("/api/led/effect", HTTP_POST, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-    handleApiLedEffectPost(request, data, len, index, total);
+      server.on("/api/led/effect", HTTP_POST, [](AsyncWebServerRequest *request) {
+    // do nothing, wait for body
+  }, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        if (index == 0) {
+      if (request->_tempObject) { delete (String*)request->_tempObject; request->_tempObject = NULL; }
+      String* s = new String();
+      s->reserve(total);
+      request->_tempObject = s;
+    }
+    String* s = (String*)request->_tempObject;
+    if (s) { for (size_t i = 0; i < len; i++) *s += (char)data[i]; }
+    if (index + len == total) {
+      handleApiLedEffectPost(request);
+      if (request->_tempObject) { delete (String*)request->_tempObject; request->_tempObject = NULL; }
+    }
   });
   server.on("/api/led/effect", HTTP_OPTIONS, handleOptions);
   
   server.on("/api/garden/settings", HTTP_GET, handleGardenSettingsGet);
-  server.on("/api/garden/settings", HTTP_POST, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-    handleGardenSettingsPost(request, data, len, index, total);
+      server.on("/api/garden/settings", HTTP_POST, [](AsyncWebServerRequest *request) {
+    // do nothing, wait for body
+  }, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        if (index == 0) {
+      if (request->_tempObject) { delete (String*)request->_tempObject; request->_tempObject = NULL; }
+      String* s = new String();
+      s->reserve(total);
+      request->_tempObject = s;
+    }
+    String* s = (String*)request->_tempObject;
+    if (s) { for (size_t i = 0; i < len; i++) *s += (char)data[i]; }
+    if (index + len == total) {
+      handleGardenSettingsPost(request);
+      if (request->_tempObject) { delete (String*)request->_tempObject; request->_tempObject = NULL; }
+    }
   });
   server.on("/api/garden/settings", HTTP_OPTIONS, handleOptions);
   
@@ -1567,11 +1657,15 @@ void setupRoutes() {
 }
 
 void setupWifi() {
+  WiFi.disconnect(true);
+  WiFi.softAPdisconnect(true);
+  delay(100);
   WiFi.persistent(false);
   WiFi.setSleepMode(WIFI_NONE_SLEEP);
   WiFi.setOutputPower(20.5f);
   staEnabled = ENABLE_STA && strlen(WIFI_SSID) > 0;
   WiFi.mode(staEnabled ? WIFI_AP_STA : WIFI_AP);
+  delay(100);
   if (staEnabled) {
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     Serial.print("Connecting to WiFi");
@@ -1597,9 +1691,8 @@ void setupHardware() {
   digitalWrite(PIN_LED_STRIP, LOW);
   delay(2);
   
-  FastLED.setMaxPowerInVoltsAndMilliamps(5, 400); 
-  FastLED.addLeds<NEOPIXEL, PIN_LED_STRIP>(leds, LED_COUNT);
-  FastLED.setBrightness(LED_GLOBAL_BRIGHTNESS);
+  FastLED.addLeds<WS2812B, PIN_LED_STRIP, GRB>(leds, LED_COUNT);
+  FastLED.setBrightness(255); // Global Brightness definieren, verfälscht sonst Berechnungen!
   FastLED.setDither(0);
   fill_solid(leds, LED_COUNT, CRGB::Black);
   showStripSafely();
